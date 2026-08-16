@@ -13,7 +13,7 @@ export type Word = {
   correctCount?: number;
   incorrectCount?: number;
   isBookmarked?: boolean;
-  cardType?: "concept" | "definition" | "formula" | "case";
+  cardType?: "concept" | "definition" | "formula" | "case" | "multiple-choice" | "cloze";
 };
 
 export type RelationType =
@@ -42,14 +42,14 @@ export type AppState = {
 };
 
 export const relationTypes: Array<{ value: RelationType; label: string }> = [
-  { value: "hypernym", label: "상위 개념" },
-  { value: "hyponym", label: "하위 개념" },
-  { value: "part_of", label: "부분" },
-  { value: "has_part", label: "전체" },
-  { value: "synonym", label: "유의어" },
-  { value: "antonym", label: "반의어" },
-  { value: "related", label: "관련어" },
-  { value: "example", label: "예시" },
+  { value: "hypernym", label: "Hypernym" },
+  { value: "hyponym", label: "Hyponym" },
+  { value: "part_of", label: "Part of" },
+  { value: "has_part", label: "Has part" },
+  { value: "synonym", label: "Synonym" },
+  { value: "antonym", label: "Antonym" },
+  { value: "related", label: "Related" },
+  { value: "example", label: "Example" },
 ];
 
 export const storageKeys = {

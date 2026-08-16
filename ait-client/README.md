@@ -1,28 +1,26 @@
-# photo graph client
+# study deck client
 
-시험 공부용 플래시카드, 오답 복습, 간격 반복을 제공하는 React 모바일 앱입니다.
+A focused mobile study app for exam flashcards, mistake review, bookmarks, and spaced repetition.
 
-## 실행
+## Run
 
 ```bash
 npm install
 npm run dev
 ```
 
-개발 API는 `/api/state`로 연결되며 기본 대상은 `http://127.0.0.1:4180`입니다.
+The development API is available at `/api/state` and defaults to `http://127.0.0.1:4180`.
 
-## 주요 기능
+## Features
 
-- 사진·뜻·예문·메모를 함께 기록
-- 태그와 전문 검색으로 단어 탐색
-- 관계를 연결하고 그래프로 이동
-- 일일 복습 카드와 진행률
-- IndexedDB 우선 저장 및 localStorage 백업
-- 사진 자동 리사이즈·압축과 API 동기화
-- JSON 데이터 가져오기·내보내기
-- 단어별 복습 레벨과 다음 복습일
+- Exam-style cards organized by subject and chapter
+- Question/answer recall flow with confidence grading
+- Due-card scheduling and mistake review
+- Search, subject filters, bookmarks, and card details
+- IndexedDB-first persistence with localStorage fallback
+- JSON import/export with schema validation
 
-## 명령어
+## Commands
 
 ```bash
 npm run build
