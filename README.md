@@ -20,7 +20,7 @@
 Node 서버를 실행하면 됩니다.
 
 ```bash
-cd /Users/kipyo/vocab-map
+cd /Users/kipyo/memo-with-photo-graph
 npm start
 ```
 
