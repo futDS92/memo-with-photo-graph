@@ -1,15 +1,29 @@
 import { createServer } from "node:http";
 import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { DatabaseSync } from "node:sqlite";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const rootDir = __dirname;
 const dataDir = join(rootDir, "data");
 const statePath = join(dataDir, "state.json");
 const tempStatePath = join(dataDir, "state.json.tmp");
+const databasePath = join(dataDir, "study-deck.sqlite");
 const port = Number(process.env.PORT || 4180);
 let writeQueue = Promise.resolve();
+let legacyState;
+
+mkdirSync(dataDir, { recursive: true });
+const database = new DatabaseSync(databasePath);
+database.exec(`
+  PRAGMA journal_mode = WAL;
+  CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE, password_hash TEXT, is_anonymous INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires_at TEXT NOT NULL, FOREIGN KEY(user_id) REFERENCES users(id));
+  CREATE TABLE IF NOT EXISTS user_states (user_id TEXT PRIMARY KEY, words_json TEXT NOT NULL, relations_json TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY(user_id) REFERENCES users(id));
+`);
 
 const seedState = {
   words: [
@@ -65,11 +79,41 @@ const seedState = {
     },
   ],
   relations: [
-    { id: "rel-1", fromWordId: "word-orchard", toWordId: "word-tree", type: "hyponym", label: "contains" },
-    { id: "rel-2", fromWordId: "word-grove", toWordId: "word-tree", type: "hyponym", label: "made of" },
-    { id: "rel-3", fromWordId: "word-orchard", toWordId: "word-farm", type: "part_of", label: "can belong to" },
-    { id: "rel-4", fromWordId: "word-orchard", toWordId: "word-bloom", type: "related", label: "seasonal image" },
-    { id: "rel-5", fromWordId: "word-grove", toWordId: "word-bloom", type: "related", label: "forest feeling" },
+    {
+      id: "rel-1",
+      fromWordId: "word-orchard",
+      toWordId: "word-tree",
+      type: "hyponym",
+      label: "contains",
+    },
+    {
+      id: "rel-2",
+      fromWordId: "word-grove",
+      toWordId: "word-tree",
+      type: "hyponym",
+      label: "made of",
+    },
+    {
+      id: "rel-3",
+      fromWordId: "word-orchard",
+      toWordId: "word-farm",
+      type: "part_of",
+      label: "can belong to",
+    },
+    {
+      id: "rel-4",
+      fromWordId: "word-orchard",
+      toWordId: "word-bloom",
+      type: "related",
+      label: "seasonal image",
+    },
+    {
+      id: "rel-5",
+      fromWordId: "word-grove",
+      toWordId: "word-bloom",
+      type: "related",
+      label: "forest feeling",
+    },
   ],
   schemaVersion: 2,
 };
@@ -116,13 +160,113 @@ async function readJsonFile(path, fallback) {
   }
 }
 
+function parseCookies(req) {
+  return Object.fromEntries(
+    (req.headers.cookie || "")
+      .split(";")
+      .map((part) => part.trim().split("="))
+      .filter(([key]) => key)
+      .map(([key, ...value]) => [key, decodeURIComponent(value.join("="))]),
+  );
+}
+
+function passwordHash(password, salt = randomBytes(16).toString("hex")) {
+  return `${salt}:${scryptSync(password, salt, 64).toString("hex")}`;
+}
+
+function passwordMatches(password, stored) {
+  if (!stored || !stored.includes(":")) return false;
+  const [salt, expected] = stored.split(":");
+  const actual = scryptSync(password, salt, 64).toString("hex");
+  return (
+    expected.length === actual.length && timingSafeEqual(Buffer.from(expected), Buffer.from(actual))
+  );
+}
+
+function setSessionCookie(res, token, maxAge = 60 * 60 * 24 * 30) {
+  const secure = process.env.COOKIE_SECURE === "true";
+  const sameSite = secure ? "None" : "Lax";
+  res.setHeader(
+    "set-cookie",
+    `study_session=${encodeURIComponent(token)}; HttpOnly; SameSite=${sameSite};${secure ? " Secure;" : ""} Path=/; Max-Age=${maxAge}`,
+  );
+}
+
+function createSession(userId) {
+  const token = randomBytes(32).toString("hex");
+  const expiresAt = new Date(Date.now() + 30 * 86400000).toISOString();
+  database
+    .prepare("INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)")
+    .run(token, userId, expiresAt);
+  return token;
+}
+
+function createAnonymousUser() {
+  const id = `user-${randomBytes(12).toString("hex")}`;
+  database
+    .prepare(
+      "INSERT INTO users (id, email, password_hash, is_anonymous, created_at) VALUES (?, NULL, NULL, 1, ?)",
+    )
+    .run(id, new Date().toISOString());
+  return id;
+}
+
+function getUserFromRequest(req, res, createAnonymous = true) {
+  const token = parseCookies(req).study_session;
+  if (token) {
+    const row = database
+      .prepare(
+        "SELECT users.id, users.email, users.is_anonymous FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token = ? AND sessions.expires_at > ?",
+      )
+      .get(token, new Date().toISOString());
+    if (row) return row;
+  }
+  if (!createAnonymous) return null;
+  const userId = createAnonymousUser();
+  const newToken = createSession(userId);
+  setSessionCookie(res, newToken);
+  return { id: userId, email: null, is_anonymous: 1 };
+}
+
+async function getUserState(userId) {
+  const row = database
+    .prepare("SELECT words_json, relations_json, updated_at FROM user_states WHERE user_id = ?")
+    .get(userId);
+  if (row)
+    return {
+      words: JSON.parse(row.words_json),
+      relations: JSON.parse(row.relations_json),
+      updatedAt: row.updated_at,
+      schemaVersion: 2,
+    };
+  if (legacyState === undefined) legacyState = await readJsonFile(statePath, null);
+  if (
+    legacyState?.schemaVersion === 2 &&
+    Array.isArray(legacyState.words) &&
+    Array.isArray(legacyState.relations)
+  )
+    return legacyState;
+  return seedState;
+}
+
+function writeUserState(userId, state) {
+  const updatedAt = new Date().toISOString();
+  database
+    .prepare(
+      "INSERT INTO user_states (user_id, words_json, relations_json, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET words_json = excluded.words_json, relations_json = excluded.relations_json, updated_at = excluded.updated_at",
+    )
+    .run(userId, JSON.stringify(state.words), JSON.stringify(state.relations), updatedAt);
+  return { ...state, updatedAt, schemaVersion: 2 };
+}
+
 async function getState() {
   const existing = await readJsonFile(statePath, null);
   if (
     existing &&
     Array.isArray(existing.words) &&
     Array.isArray(existing.relations) &&
-      existing.schemaVersion === 2 && (existing.words.length || existing.relations.length)
+    existing.schemaVersion === 2 &&
+    (existing.words.length || existing.relations.length)
   ) {
     return existing;
   }
@@ -149,43 +293,148 @@ function isValidState(state) {
   if (!state || !Array.isArray(state.words) || !Array.isArray(state.relations)) return false;
   const ids = new Set();
   for (const word of state.words) {
-    if (!word || typeof word.id !== "string" || typeof word.term !== "string" || typeof word.definition !== "string" || !Array.isArray(word.tags)) return false;
+    if (
+      !word ||
+      typeof word.id !== "string" ||
+      typeof word.term !== "string" ||
+      typeof word.definition !== "string" ||
+      !Array.isArray(word.tags)
+    )
+      return false;
     if (ids.has(word.id)) return false;
     ids.add(word.id);
   }
   const relationIds = new Set();
-  return state.relations.every((relation) => relation && typeof relation.id === "string" && !relationIds.has(relation.id) && typeof relation.fromWordId === "string" && typeof relation.toWordId === "string" && ids.has(relation.fromWordId) && ids.has(relation.toWordId) && relationIds.add(relation.id));
+  return state.relations.every(
+    (relation) =>
+      relation &&
+      typeof relation.id === "string" &&
+      !relationIds.has(relation.id) &&
+      typeof relation.fromWordId === "string" &&
+      typeof relation.toWordId === "string" &&
+      ids.has(relation.fromWordId) &&
+      ids.has(relation.toWordId) &&
+      relationIds.add(relation.id),
+  );
 }
 
-function sendJson(res, statusCode, body) {
+function sendJson(res, statusCode, body, origin = "") {
+  const allowedOrigin = process.env.CLIENT_ORIGIN || origin;
   res.writeHead(statusCode, {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
+    ...(allowedOrigin ? { "access-control-allow-origin": allowedOrigin } : {}),
+    "access-control-allow-credentials": "true",
+    "access-control-allow-headers": "content-type",
+    "access-control-allow-methods": "GET,POST,PUT,OPTIONS",
   });
   res.end(JSON.stringify(body));
+}
+
+async function readRequestJson(req) {
+  const chunks = [];
+  for await (const chunk of req) chunks.push(chunk);
+  return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
 }
 
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
 
+    if (req.method === "OPTIONS") {
+      const allowedOrigin = process.env.CLIENT_ORIGIN || req.headers.origin;
+      res.writeHead(
+        204,
+        allowedOrigin
+          ? {
+              "access-control-allow-origin": allowedOrigin,
+              "access-control-allow-credentials": "true",
+              "access-control-allow-headers": "content-type",
+              "access-control-allow-methods": "GET,POST,PUT,OPTIONS",
+            }
+          : undefined,
+      );
+      res.end();
+      return;
+    }
+
     if (url.pathname === "/api/health") {
       sendJson(res, 200, { ok: true });
       return;
     }
 
+    if (url.pathname === "/api/auth/register" && req.method === "POST") {
+      const payload = await readRequestJson(req);
+      const email = String(payload.email || "")
+        .trim()
+        .toLowerCase();
+      const password = String(payload.password || "");
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || password.length < 8) {
+        sendJson(res, 400, { error: "Use a valid email and an 8-character password" });
+        return;
+      }
+      if (database.prepare("SELECT id FROM users WHERE email = ?").get(email)) {
+        sendJson(res, 409, { error: "Email is already registered" });
+        return;
+      }
+      const userId = `user-${randomBytes(12).toString("hex")}`;
+      database
+        .prepare(
+          "INSERT INTO users (id, email, password_hash, is_anonymous, created_at) VALUES (?, ?, ?, 0, ?)",
+        )
+        .run(userId, email, passwordHash(password), new Date().toISOString());
+      setSessionCookie(res, createSession(userId));
+      sendJson(res, 201, { user: { id: userId, email, isAnonymous: false } });
+      return;
+    }
+
+    if (url.pathname === "/api/auth/login" && req.method === "POST") {
+      const payload = await readRequestJson(req);
+      const email = String(payload.email || "")
+        .trim()
+        .toLowerCase();
+      const password = String(payload.password || "");
+      const user = database
+        .prepare("SELECT id, email, password_hash FROM users WHERE email = ?")
+        .get(email);
+      if (!user || !passwordMatches(password, user.password_hash)) {
+        sendJson(res, 401, { error: "Email or password is incorrect" });
+        return;
+      }
+      setSessionCookie(res, createSession(user.id));
+      sendJson(res, 200, { user: { id: user.id, email: user.email, isAnonymous: false } });
+      return;
+    }
+
+    if (url.pathname === "/api/auth/me" && req.method === "GET") {
+      const user = getUserFromRequest(req, res, false);
+      sendJson(res, 200, {
+        user: user
+          ? { id: user.id, email: user.email, isAnonymous: Boolean(user.is_anonymous) }
+          : null,
+      });
+      return;
+    }
+
+    if (url.pathname === "/api/auth/logout" && req.method === "POST") {
+      const token = parseCookies(req).study_session;
+      if (token) database.prepare("DELETE FROM sessions WHERE token = ?").run(token);
+      setSessionCookie(res, "", 0);
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
     if (url.pathname === "/api/state" && req.method === "GET") {
-      const state = await getState();
+      const user = getUserFromRequest(req, res, true);
+      const state = await getUserState(user.id);
       sendJson(res, 200, state);
       return;
     }
 
     if (url.pathname === "/api/state" && (req.method === "PUT" || req.method === "POST")) {
-      const chunks = [];
-      for await (const chunk of req) chunks.push(chunk);
       let payload;
       try {
-        payload = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+        payload = await readRequestJson(req);
       } catch {
         sendJson(res, 400, { error: "Request body must be valid JSON" });
         return;
@@ -194,7 +443,13 @@ const server = createServer(async (req, res) => {
         sendJson(res, 400, { error: "Invalid state payload" });
         return;
       }
-      writeQueue = writeQueue.catch(() => undefined).then(() => writeState(payload));
+      const user = getUserFromRequest(req, res, true);
+      const current = await getUserState(user.id);
+      if (payload.updatedAt && current.updatedAt > payload.updatedAt) {
+        sendJson(res, 409, { error: "A newer state already exists", state: current });
+        return;
+      }
+      writeQueue = writeQueue.catch(() => undefined).then(() => writeUserState(user.id, payload));
       await writeQueue;
       sendJson(res, 200, { ok: true });
       return;

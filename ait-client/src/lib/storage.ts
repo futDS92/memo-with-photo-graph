@@ -7,18 +7,51 @@ const DB_NAME = "photo-graph";
 const DB_VERSION = 1;
 const STATE_STORE = "state";
 const PENDING_SYNC_KEY = "memo-with-photo-graph.pending-sync";
-function cloneSeedState(): AppState { return { ...seedState, words: seedState.words.map((word) => ({ ...word, tags: [...word.tags], choices: word.choices ? [...word.choices] : undefined })), relations: seedState.relations.map((relation) => ({ ...relation })) }; }
+const API_AUTH_URL = import.meta.env.VITE_API_AUTH_URL || "/api/auth";
+export type AuthUser = { id: string; email: string | null; isAnonymous: boolean };
+function cloneSeedState(): AppState {
+  return {
+    ...seedState,
+    words: seedState.words.map((word) => ({
+      ...word,
+      tags: [...word.tags],
+      choices: word.choices ? [...word.choices] : undefined,
+    })),
+    relations: seedState.relations.map((relation) => ({ ...relation })),
+  };
+}
 
 function isValidState(value: unknown): value is AppState {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<AppState>;
-  if (candidate.schemaVersion !== 2 || !Array.isArray(candidate.words) || !Array.isArray(candidate.relations)) return false;
+  if (
+    candidate.schemaVersion !== 2 ||
+    !Array.isArray(candidate.words) ||
+    !Array.isArray(candidate.relations)
+  )
+    return false;
   const ids = new Set<string>();
   for (const word of candidate.words) {
-    if (!word || typeof word.id !== "string" || typeof word.term !== "string" || typeof word.definition !== "string" || !Array.isArray(word.tags) || ids.has(word.id)) return false;
+    if (
+      !word ||
+      typeof word.id !== "string" ||
+      typeof word.term !== "string" ||
+      typeof word.definition !== "string" ||
+      !Array.isArray(word.tags) ||
+      ids.has(word.id)
+    )
+      return false;
     ids.add(word.id);
   }
-  return candidate.relations.every((relation) => relation && typeof relation.id === "string" && typeof relation.fromWordId === "string" && typeof relation.toWordId === "string" && ids.has(relation.fromWordId) && ids.has(relation.toWordId));
+  return candidate.relations.every(
+    (relation) =>
+      relation &&
+      typeof relation.id === "string" &&
+      typeof relation.fromWordId === "string" &&
+      typeof relation.toWordId === "string" &&
+      ids.has(relation.fromWordId) &&
+      ids.has(relation.toWordId),
+  );
 }
 
 function openStateDb(): Promise<IDBDatabase> {
@@ -48,7 +81,10 @@ async function writeIndexedState(state: AppState) {
   if (!("indexedDB" in window)) return;
   const db = await openStateDb();
   await new Promise<void>((resolve, reject) => {
-    const request = db.transaction(STATE_STORE, "readwrite").objectStore(STATE_STORE).put(state, "current");
+    const request = db
+      .transaction(STATE_STORE, "readwrite")
+      .objectStore(STATE_STORE)
+      .put(state, "current");
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
@@ -83,11 +119,19 @@ export function saveLocalState(state: AppState) {
 }
 
 function savePendingSync(state: AppState) {
-  try { localStorage.setItem(PENDING_SYNC_KEY, JSON.stringify(state)); } catch { /* local persistence is best effort */ }
+  try {
+    localStorage.setItem(PENDING_SYNC_KEY, JSON.stringify(state));
+  } catch {
+    /* local persistence is best effort */
+  }
 }
 
 function clearPendingSync() {
-  try { localStorage.removeItem(PENDING_SYNC_KEY); } catch { /* ignore storage errors */ }
+  try {
+    localStorage.removeItem(PENDING_SYNC_KEY);
+  } catch {
+    /* ignore storage errors */
+  }
 }
 
 export async function loadLocalStateAsync(): Promise<AppState> {
@@ -161,7 +205,7 @@ export function savePersistedTag(tag: string) {
 
 export async function hydrateStateFromServer(localState?: AppState): Promise<AppState | null> {
   try {
-    const response = await fetch(API_STATE_URL, { cache: "no-store" });
+    const response = await fetch(API_STATE_URL, { cache: "no-store", credentials: "include" });
     if (!response.ok) return null;
     const data = (await response.json()) as AppState;
     if (!isValidState(data)) return localState || null;
@@ -183,7 +227,12 @@ export async function syncStateToServer(state: AppState): Promise<void> {
     const response = await fetch(API_STATE_URL, {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ words: state.words, relations: state.relations, updatedAt: state.updatedAt }),
+      credentials: "include",
+      body: JSON.stringify({
+        words: state.words,
+        relations: state.relations,
+        updatedAt: state.updatedAt,
+      }),
     });
     if (!response.ok) throw new Error(`Sync failed: ${response.status}`);
     clearPendingSync();
@@ -191,4 +240,37 @@ export async function syncStateToServer(state: AppState): Promise<void> {
     savePendingSync(state);
     throw error;
   }
+}
+
+export async function getCurrentUser(): Promise<AuthUser | null> {
+  try {
+    const response = await fetch(`${API_AUTH_URL}/me`, {
+      credentials: "include",
+      cache: "no-store",
+    });
+    if (!response.ok) return null;
+    return ((await response.json()) as { user: AuthUser | null }).user;
+  } catch {
+    return null;
+  }
+}
+
+export async function authenticate(
+  path: "login" | "register",
+  email: string,
+  password: string,
+): Promise<AuthUser> {
+  const response = await fetch(`${API_AUTH_URL}/${path}`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  const data = (await response.json()) as { user?: AuthUser; error?: string };
+  if (!response.ok || !data.user) throw new Error(data.error || "Authentication failed");
+  return data.user;
+}
+
+export async function logout(): Promise<void> {
+  await fetch(`${API_AUTH_URL}/logout`, { method: "POST", credentials: "include" });
 }
