@@ -69,16 +69,24 @@ export function saveLocalState(state: AppState) {
 }
 
 export async function loadLocalStateAsync(): Promise<AppState> {
-  const localState = loadLocalState();
+  let parsedLocal: any = null;
+  try {
+    const rawLocal = localStorage.getItem(storageKeys.state);
+    parsedLocal = rawLocal ? JSON.parse(rawLocal) : null;
+  } catch {
+    parsedLocal = null;
+  }
+  const hasValidLocal = parsedLocal?.schemaVersion === 2 && Array.isArray(parsedLocal.words) && Array.isArray(parsedLocal.relations);
+  const localState = hasValidLocal ? loadLocalState() : null;
   try {
     const indexedState = await readIndexedState();
     if (indexedState?.schemaVersion === 2 && Array.isArray(indexedState.words) && Array.isArray(indexedState.relations)) {
-      return indexedState.updatedAt >= localState.updatedAt ? indexedState : localState;
+      if (!localState || indexedState.updatedAt >= localState.updatedAt) return indexedState;
     }
   } catch {
     // fall back to the synchronous cache
   }
-  return localState;
+  return localState || loadLocalState();
 }
 
 export function loadPersistedView(): string {

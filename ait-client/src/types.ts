@@ -14,6 +14,7 @@ export type Word = {
   incorrectCount?: number;
   isBookmarked?: boolean;
   cardType?: "concept" | "definition" | "formula" | "case" | "multiple-choice" | "cloze";
+  choices?: string[];
 };
 
 export type RelationType =
