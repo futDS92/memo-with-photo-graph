@@ -74,6 +74,7 @@ button {
   background: var(--ink);
   font-size: 21px;
   font-weight: 900;
+  object-fit: cover;
 }
 .study-brand strong,
 .study-brand small {
