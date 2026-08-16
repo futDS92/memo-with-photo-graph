@@ -7,6 +7,7 @@ type View = "home" | "decks" | "study" | "mistakes" | "graph";
 type StudyMode = "due" | "mistakes";
 
 function today() { return new Date().toISOString().slice(0, 10); }
+function newId(prefix: string) { return `${prefix}-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`; }
 function nextDue(level: number, hard: boolean) {
   const days = hard ? 1 : [1, 3, 7, 14, 30][Math.min(level, 4)];
   return new Date(Date.now() + days * 86400000).toISOString();
@@ -53,7 +54,14 @@ function cardChapter(card: Word) { return card.example || "Core Concepts"; }
 function isValidImportedState(value: unknown): value is AppState {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<AppState>;
-  return candidate.schemaVersion === 2 && Array.isArray(candidate.words) && Array.isArray(candidate.relations) && candidate.words.every((card) => Boolean(card && typeof card.id === "string" && typeof card.term === "string" && typeof card.definition === "string" && Array.isArray(card.tags)));
+  if (candidate.schemaVersion !== 2 || !Array.isArray(candidate.words) || !Array.isArray(candidate.relations)) return false;
+  const ids = new Set<string>();
+  const relationIds = new Set<string>();
+  for (const card of candidate.words) {
+    if (!card || typeof card.id !== "string" || typeof card.term !== "string" || typeof card.definition !== "string" || !Array.isArray(card.tags) || ids.has(card.id)) return false;
+    ids.add(card.id);
+  }
+  return candidate.relations.every((relation) => Boolean(relation && typeof relation.id === "string" && !relationIds.has(relation.id) && typeof relation.fromWordId === "string" && typeof relation.toWordId === "string" && ids.has(relation.fromWordId) && ids.has(relation.toWordId) && relationIds.add(relation.id)));
 }
 
 export function App() {
@@ -76,6 +84,8 @@ export function App() {
   const [relationTo, setRelationTo] = useState("");
   const [relationType, setRelationType] = useState<RelationType>("related");
   const stateReady = useRef(false);
+  const syncVersion = useRef(0);
+  const syncQueue = useRef(Promise.resolve());
   const toastTimer = useRef<number | null>(null);
 
   const cards = state.words;
@@ -84,6 +94,7 @@ export function App() {
   const dueCards = useMemo(() => cards.filter(isDue), [cards, nowTick]);
   const mistakeCards = useMemo(() => cards.filter((card) => (card.incorrectCount || 0) > (card.correctCount || 0)), [cards]);
   const filteredCards = useMemo(() => cards.filter((card) => (subject === "All" || cardSubject(card) === subject) && [card.term, card.definition, ...card.tags].join(" ").toLowerCase().includes(search.toLowerCase())), [cards, search, subject]);
+  const graphCards = useMemo(() => cards.slice(0, 12), [cards]);
   const currentCard = cards.find((card) => card.id === studyIds[studyIndex]);
 
   const notify = (message: string) => {
@@ -96,17 +107,31 @@ export function App() {
     let mounted = true;
     loadLocalStateAsync().then((local) => {
       if (!mounted) return null;
-      stateReady.current = true;
-      setState(local);
-      return hydrateStateFromServer(local);
-    }).then((remote) => { if (mounted && remote) setState(remote); });
+      return hydrateStateFromServer(local).then((remote) => {
+        if (!mounted) return null;
+        setState(remote || local);
+        stateReady.current = true;
+        return null;
+      });
+    });
     return () => { mounted = false; };
   }, []);
   useEffect(() => {
     if (!stateReady.current) return;
+    const version = ++syncVersion.current;
     setSyncing(true);
     saveLocalState(state);
-    const timer = window.setTimeout(() => syncStateToServer(state).then(() => { setSyncing(false); setSyncError(false); }).catch(() => { setSyncing(false); setSyncError(true); }), 300);
+    const timer = window.setTimeout(() => {
+      syncQueue.current = syncQueue.current.catch(() => undefined).then(async () => {
+        if (version !== syncVersion.current) return;
+        try {
+          await syncStateToServer(state);
+          if (version === syncVersion.current) { setSyncing(false); setSyncError(false); }
+        } catch {
+          if (version === syncVersion.current) { setSyncing(false); setSyncError(true); }
+        }
+      });
+    }, 300);
     return () => window.clearTimeout(timer);
   }, [state]);
   useEffect(() => {
@@ -135,15 +160,15 @@ export function App() {
     const file = data.get("photo");
     const photo = file instanceof File && file.size ? await photoUrl(file) : "";
     const choices = String(data.get("choices") || "").split(",").map((choice) => choice.trim()).filter(Boolean);
-    const newCard: Word = { id: `card-${crypto.randomUUID()}`, term: question, definition: answer, pos: String(data.get("subject") || "Other"), example: String(data.get("chapter") || "Core Concepts"), memo: String(data.get("memo") || ""), tags: String(data.get("tags") || "").split(",").map((tag) => tag.trim()).filter(Boolean), photo, cardType: String(data.get("type") || "concept") as Word["cardType"], choices, reviewLevel: 0, correctCount: 0, incorrectCount: 0 };
+    const newCard: Word = { id: newId("card"), term: question, definition: answer, pos: String(data.get("subject") || "Other"), example: String(data.get("chapter") || "Core Concepts"), memo: String(data.get("memo") || ""), tags: String(data.get("tags") || "").split(",").map((tag) => tag.trim()).filter(Boolean), photo, cardType: String(data.get("type") || "concept") as Word["cardType"], choices, reviewLevel: 0, correctCount: 0, incorrectCount: 0 };
     setState((current) => ({ ...current, schemaVersion: 2, updatedAt: new Date().toISOString(), words: [newCard, ...current.words] }));
     event.currentTarget.reset(); setSheet(null); notify("Card added");
   };
-  const updateBookmark = (id: string) => setState((current) => ({ ...current, updatedAt: new Date().toISOString(), words: current.words.map((card) => card.id === id ? { ...card, isBookmarked: !card.isBookmarked } : card) }));
-  const exportJson = () => { const blob = new Blob([JSON.stringify({ ...state, schemaVersion: 2 }, null, 2)], { type: "application/json" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = "study-deck.json"; link.click(); URL.revokeObjectURL(url); notify("Deck exported"); };
+  const updateBookmark = (id: string) => setState((current) => ({ ...current, schemaVersion: 2, updatedAt: new Date().toISOString(), words: current.words.map((card) => card.id === id ? { ...card, isBookmarked: !card.isBookmarked } : card) }));
+  const exportJson = () => { const blob = new Blob([JSON.stringify({ ...state, schemaVersion: 2 }, null, 2)], { type: "application/json" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = "study-deck.json"; link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); notify("Deck exported"); };
   const importJson = async (event: ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0]; event.target.value = ""; if (!file) return; try { const parsed: unknown = JSON.parse(await file.text()); if (!isValidImportedState(parsed)) throw new Error("Invalid deck"); setState({ ...parsed, updatedAt: new Date().toISOString(), schemaVersion: 2 }); notify("Deck imported"); } catch { notify("Could not import this deck"); } };
   const chooseAnswer = (choice: string) => { if (!currentCard) return; if (choice === currentCard.definition) { setSelectedChoice(choice); setRevealed(true); } else { setSelectedChoice(choice); notify("Not quite — try again"); } };
-  const addRelation = () => { if (!relationFrom || !relationTo || relationFrom === relationTo) { notify("Choose two different cards"); return; } if (state.relations.some((relation) => relation.fromWordId === relationFrom && relation.toWordId === relationTo && relation.type === relationType)) { notify("That connection already exists"); return; } setState((current) => ({ ...current, schemaVersion: 2, updatedAt: new Date().toISOString(), relations: [...current.relations, { id: `relation-${crypto.randomUUID()}`, fromWordId: relationFrom, toWordId: relationTo, type: relationType }] })); notify("Connection added"); };
+  const addRelation = () => { if (!relationFrom || !relationTo || relationFrom === relationTo) { notify("Choose two different cards"); return; } if (state.relations.some((relation) => relation.fromWordId === relationFrom && relation.toWordId === relationTo && relation.type === relationType)) { notify("That connection already exists"); return; } setState((current) => ({ ...current, schemaVersion: 2, updatedAt: new Date().toISOString(), relations: [...current.relations, { id: newId("relation"), fromWordId: relationFrom, toWordId: relationTo, type: relationType }] })); notify("Connection added"); };
   const removeRelation = (id: string) => setState((current) => ({ ...current, schemaVersion: 2, updatedAt: new Date().toISOString(), relations: current.relations.filter((relation) => relation.id !== id) }));
 
   return <main className="study-app">
@@ -157,7 +182,7 @@ export function App() {
 
     {view === "mistakes" && <section className="study-content"><div className="study-page-title"><div><p>REVIEW</p><h1>Mistakes</h1></div></div><div className="mistake-summary"><strong>{mistakeCards.length} cards</strong><span>Cards that need another pass</span><button type="button" onClick={() => openStudy("mistakes")}>Start review</button></div><div className="card-list">{mistakeCards.map((card) => <button className="study-card-row" type="button" key={card.id} onClick={() => { setSelectedId(card.id); setSheet("detail"); }}><span className="type-mark wrong">!</span><span><strong>{card.term}</strong><small>{card.incorrectCount || 0} mistakes · {cardSubject(card)}</small></span><Icon name="chevron" /></button>)}</div></section>}
 
-    {view === "graph" && <section className="study-content graph-page"><div className="study-page-title"><div><p>KNOWLEDGE MAP</p><h1>Connections</h1></div><span className="graph-count">{state.relations.length} links</span></div><p className="graph-intro">Connect concepts to see how your syllabus fits together.</p><div className="graph-canvas"><svg viewBox="0 0 360 260" role="img" aria-label="Knowledge graph">{state.relations.map((relation) => { const fromIndex = cards.findIndex((card) => card.id === relation.fromWordId); const toIndex = cards.findIndex((card) => card.id === relation.toWordId); if (fromIndex < 0 || toIndex < 0) return null; const fromAngle = (fromIndex / Math.max(cards.length, 1)) * Math.PI * 2 - Math.PI / 2; const toAngle = (toIndex / Math.max(cards.length, 1)) * Math.PI * 2 - Math.PI / 2; const fx = 180 + Math.cos(fromAngle) * 102; const fy = 130 + Math.sin(fromAngle) * 78; const tx = 180 + Math.cos(toAngle) * 102; const ty = 130 + Math.sin(toAngle) * 78; return <line key={relation.id} x1={fx} y1={fy} x2={tx} y2={ty} />; })}{cards.slice(0, 12).map((card, index) => { const angle = (index / Math.max(Math.min(cards.length, 12), 1)) * Math.PI * 2 - Math.PI / 2; const x = 180 + Math.cos(angle) * 102; const y = 130 + Math.sin(angle) * 78; return <g key={card.id} transform={`translate(${x} ${y})`} onClick={() => { setSelectedId(card.id); setSheet("detail"); }}><circle r="23" /><text y="4">{card.term.slice(0, 10)}{card.term.length > 10 ? "…" : ""}</text></g>; })}</svg>{!cards.length && <div className="graph-empty">Add cards to start your knowledge map.</div>}</div><div className="graph-editor"><strong>Add a connection</strong><div className="form-grid"><select value={relationFrom} onChange={(event) => setRelationFrom(event.target.value)}><option value="">From card</option>{cards.map((card) => <option value={card.id} key={card.id}>{card.term}</option>)}</select><select value={relationTo} onChange={(event) => setRelationTo(event.target.value)}><option value="">To card</option>{cards.map((card) => <option value={card.id} key={card.id}>{card.term}</option>)}</select></div><div className="form-grid"><select value={relationType} onChange={(event) => setRelationType(event.target.value as RelationType)}>{relationTypes.map((type) => <option value={type.value} key={type.value}>{type.label}</option>)}</select><button className="known" type="button" onClick={addRelation}>Connect</button></div></div><div className="relation-list">{state.relations.map((relation) => <div key={relation.id}><span><strong>{cards.find((card) => card.id === relation.fromWordId)?.term || "Unknown"}</strong><small>{relation.type.replaceAll("_", " ")}</small><strong>{cards.find((card) => card.id === relation.toWordId)?.term || "Unknown"}</strong></span><button type="button" onClick={() => removeRelation(relation.id)} aria-label="Remove connection"><Icon name="close" /></button></div>)}</div></section>}
+    {view === "graph" && <section className="study-content graph-page"><div className="study-page-title"><div><p>KNOWLEDGE MAP</p><h1>Connections</h1></div><span className="graph-count">{state.relations.length} links</span></div><p className="graph-intro">Connect concepts to see how your syllabus fits together.</p><div className="graph-canvas"><svg viewBox="0 0 360 260" role="img" aria-label="Knowledge graph">{state.relations.map((relation) => { const fromIndex = graphCards.findIndex((card) => card.id === relation.fromWordId); const toIndex = graphCards.findIndex((card) => card.id === relation.toWordId); if (fromIndex < 0 || toIndex < 0) return null; const fromAngle = (fromIndex / Math.max(graphCards.length, 1)) * Math.PI * 2 - Math.PI / 2; const toAngle = (toIndex / Math.max(graphCards.length, 1)) * Math.PI * 2 - Math.PI / 2; const fx = 180 + Math.cos(fromAngle) * 102; const fy = 130 + Math.sin(fromAngle) * 78; const tx = 180 + Math.cos(toAngle) * 102; const ty = 130 + Math.sin(toAngle) * 78; return <line key={relation.id} x1={fx} y1={fy} x2={tx} y2={ty} />; })}{graphCards.map((card, index) => { const angle = (index / Math.max(graphCards.length, 1)) * Math.PI * 2 - Math.PI / 2; const x = 180 + Math.cos(angle) * 102; const y = 130 + Math.sin(angle) * 78; return <g key={card.id} role="button" tabIndex={0} transform={`translate(${x} ${y})`} onClick={() => { setSelectedId(card.id); setSheet("detail"); }} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedId(card.id); setSheet("detail"); } }}><circle r="23" /><text y="4">{card.term.slice(0, 10)}{card.term.length > 10 ? "…" : ""}</text></g>; })}</svg>{!cards.length && <div className="graph-empty">Add cards to start your knowledge map.</div>}{cards.length > graphCards.length && <small className="graph-overflow">Showing first {graphCards.length} cards. All connections remain available below.</small>}</div><div className="graph-editor"><strong>Add a connection</strong><div className="form-grid"><select value={relationFrom} onChange={(event) => setRelationFrom(event.target.value)}><option value="">From card</option>{cards.map((card) => <option value={card.id} key={card.id}>{card.term}</option>)}</select><select value={relationTo} onChange={(event) => setRelationTo(event.target.value)}><option value="">To card</option>{cards.map((card) => <option value={card.id} key={card.id}>{card.term}</option>)}</select></div><div className="form-grid"><select value={relationType} onChange={(event) => setRelationType(event.target.value as RelationType)}>{relationTypes.map((type) => <option value={type.value} key={type.value}>{type.label}</option>)}</select><button className="known" type="button" onClick={addRelation}>Connect</button></div></div><div className="relation-list">{state.relations.map((relation) => <div key={relation.id}><span><strong>{cards.find((card) => card.id === relation.fromWordId)?.term || "Unknown"}</strong><small>{relation.type.replaceAll("_", " ")}</small><strong>{cards.find((card) => card.id === relation.toWordId)?.term || "Unknown"}</strong></span><button type="button" onClick={() => removeRelation(relation.id)} aria-label="Remove connection"><Icon name="close" /></button></div>)}</div></section>}
 
     <nav className="study-nav"><button className={view === "home" ? "active" : ""} type="button" onClick={() => setView("home")}><Icon name="home" /><span>Home</span></button><button className={view === "decks" ? "active" : ""} type="button" onClick={() => setView("decks")}><Icon name="deck" /><span>Cards</span></button><button className="study-add" type="button" onClick={() => setSheet("add")}><Icon name="plus" /></button><button className={view === "study" ? "active" : ""} type="button" onClick={() => openStudy("due")}><Icon name="study" /><span>Study</span></button><button className={view === "graph" ? "active" : ""} type="button" onClick={() => setView("graph")}><Icon name="graph" /><span>Map</span></button></nav>
 

@@ -7,6 +7,18 @@ const DB_NAME = "photo-graph";
 const DB_VERSION = 1;
 const STATE_STORE = "state";
 
+function isValidState(value: unknown): value is AppState {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<AppState>;
+  if (candidate.schemaVersion !== 2 || !Array.isArray(candidate.words) || !Array.isArray(candidate.relations)) return false;
+  const ids = new Set<string>();
+  for (const word of candidate.words) {
+    if (!word || typeof word.id !== "string" || typeof word.term !== "string" || typeof word.definition !== "string" || !Array.isArray(word.tags) || ids.has(word.id)) return false;
+    ids.add(word.id);
+  }
+  return candidate.relations.every((relation) => relation && typeof relation.id === "string" && typeof relation.fromWordId === "string" && typeof relation.toWordId === "string" && ids.has(relation.fromWordId) && ids.has(relation.toWordId));
+}
+
 function openStateDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -45,7 +57,7 @@ export function loadLocalState(): AppState {
     const raw = localStorage.getItem(storageKeys.state);
     if (!raw) return structuredClone(seedState);
     const parsed = JSON.parse(raw);
-    if (parsed?.schemaVersion === 2 && Array.isArray(parsed?.words) && Array.isArray(parsed?.relations)) {
+    if (isValidState(parsed)) {
       return {
         words: parsed.words,
         relations: parsed.relations,
@@ -69,18 +81,18 @@ export function saveLocalState(state: AppState) {
 }
 
 export async function loadLocalStateAsync(): Promise<AppState> {
-  let parsedLocal: any = null;
+  let parsedLocal: unknown = null;
   try {
     const rawLocal = localStorage.getItem(storageKeys.state);
     parsedLocal = rawLocal ? JSON.parse(rawLocal) : null;
   } catch {
     parsedLocal = null;
   }
-  const hasValidLocal = parsedLocal?.schemaVersion === 2 && Array.isArray(parsedLocal.words) && Array.isArray(parsedLocal.relations);
+  const hasValidLocal = isValidState(parsedLocal);
   const localState = hasValidLocal ? loadLocalState() : null;
   try {
     const indexedState = await readIndexedState();
-    if (indexedState?.schemaVersion === 2 && Array.isArray(indexedState.words) && Array.isArray(indexedState.relations)) {
+    if (isValidState(indexedState)) {
       if (!localState || indexedState.updatedAt >= localState.updatedAt) return indexedState;
     }
   } catch {
@@ -142,7 +154,7 @@ export async function hydrateStateFromServer(localState?: AppState): Promise<App
     const response = await fetch(API_STATE_URL, { cache: "no-store" });
     if (!response.ok) return null;
     const data = (await response.json()) as AppState;
-    if (data.schemaVersion !== 2 || !Array.isArray(data.words) || !Array.isArray(data.relations)) return localState || null;
+    if (!isValidState(data)) return localState || null;
     const remoteState = {
       words: data.words,
       relations: data.relations,

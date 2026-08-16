@@ -149,7 +149,8 @@ function isValidState(state) {
     if (ids.has(word.id)) return false;
     ids.add(word.id);
   }
-  return state.relations.every((relation) => relation && typeof relation.id === "string" && typeof relation.fromWordId === "string" && typeof relation.toWordId === "string" && ids.has(relation.fromWordId) && ids.has(relation.toWordId));
+  const relationIds = new Set();
+  return state.relations.every((relation) => relation && typeof relation.id === "string" && !relationIds.has(relation.id) && typeof relation.fromWordId === "string" && typeof relation.toWordId === "string" && ids.has(relation.fromWordId) && ids.has(relation.toWordId) && relationIds.add(relation.id));
 }
 
 function sendJson(res, statusCode, body) {
