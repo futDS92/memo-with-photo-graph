@@ -19,6 +19,8 @@ npm run dev
 - 일일 복습 카드와 진행률
 - IndexedDB 우선 저장 및 localStorage 백업
 - 사진 자동 리사이즈·압축과 API 동기화
+- JSON 데이터 가져오기·내보내기
+- 단어별 복습 레벨과 다음 복습일
 
 ## 명령어
 

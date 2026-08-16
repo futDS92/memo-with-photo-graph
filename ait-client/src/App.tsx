@@ -166,7 +166,13 @@ export function App() {
   });
 
   const selectedWord = state.words.find((word) => word.id === selectedWordId) || state.words[0];
-  const reviewWord = state.words[reviewIndex];
+  const reviewWords = useMemo(
+    () => state.words
+      .filter((word) => !word.reviewDueAt || new Date(word.reviewDueAt).getTime() <= Date.now())
+      .sort((a, b) => (a.reviewLevel || 0) - (b.reviewLevel || 0)),
+    [state.words],
+  );
+  const reviewWord = reviewWords[reviewIndex];
   const tags = useMemo(() => uniqueTags(state.words), [state.words]);
   const filteredWords = useMemo(
     () =>
@@ -223,6 +229,22 @@ export function App() {
     }
   }, [selectedWordId, state.words]);
   useEffect(() => {
+    if (!sheet && !deleteConfirmOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setDeleteConfirmOpen(false);
+        setSheet(null);
+      }
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [deleteConfirmOpen, sheet]);
+  useEffect(() => {
     let mounted = true;
     loadLocalStateAsync()
       .then((localState) => {
@@ -261,7 +283,7 @@ export function App() {
     setMapOffset({ x: event.clientX - mapDragStart.x, y: event.clientY - mapDragStart.y });
   };
   const startReview = () => {
-    const firstPending = state.words.findIndex((word) => !reviewedToday.includes(word.id));
+    const firstPending = reviewWords.findIndex((word) => !reviewedToday.includes(word.id));
     setReviewIndex(firstPending >= 0 ? firstPending : 0);
     setReviewRevealed(false);
     setReviewFinished(false);
@@ -270,11 +292,20 @@ export function App() {
   };
   const markReviewed = (result: "known" | "hard" = "known") => {
     if (!reviewWord) return;
+    const now = new Date();
+    const nextLevel = result === "hard" ? Math.max((reviewWord.reviewLevel || 0) - 1, 0) : (reviewWord.reviewLevel || 0) + 1;
+    const intervals = [1, 3, 7, 14, 30];
+    const dueAt = new Date(now.getTime() + (result === "hard" ? 1 : intervals[Math.min(nextLevel, intervals.length - 1)]) * 86400000).toISOString();
     setReviewStats((current) => ({ ...current, [result]: current[result] + 1 }));
+    setState((current) => ({
+      ...current,
+      updatedAt: now.toISOString(),
+      words: current.words.map((word) => word.id === reviewWord.id ? { ...word, reviewLevel: nextLevel, reviewDueAt: dueAt, lastReviewedAt: now.toISOString() } : word),
+    }));
     setReviewedToday((current) =>
       current.includes(reviewWord.id) ? current : [...current, reviewWord.id],
     );
-    if (reviewIndex + 1 >= state.words.length) {
+    if (reviewIndex + 1 >= reviewWords.length) {
       setReviewFinished(true);
       setReviewRevealed(false);
       notify("오늘 복습을 끝냈어요");
@@ -402,6 +433,20 @@ export function App() {
     URL.revokeObjectURL(url);
     notify("파일을 내보냈어요");
   };
+  const importJson = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const parsed = JSON.parse(await file.text());
+      if (!Array.isArray(parsed?.words) || !Array.isArray(parsed?.relations)) throw new Error("invalid");
+      setState({ words: parsed.words, relations: parsed.relations, updatedAt: new Date().toISOString() });
+      setSheet(null);
+      notify("데이터를 가져왔어요");
+    } catch {
+      notify("올바른 JSON 파일이 아니에요");
+    }
+    event.currentTarget.value = "";
+  };
 
   return (
     <main className="app-shell">
@@ -418,6 +463,7 @@ export function App() {
             {syncStatus === "saving" ? "저장 중" : syncStatus === "saved" ? "저장됨" : "저장 실패"}
           </span>
         )}
+        <label className="import-button">가져오기<input type="file" accept="application/json,.json" onChange={importJson} /></label>
         <button className="icon-button" type="button" onClick={exportJson} aria-label="내보내기">
           <Icon name="download" />
         </button>
@@ -656,8 +702,8 @@ export function App() {
               <h1>오늘의 복습</h1>
             </div>
             <span className="map-count">
-              {reviewFinished ? state.words.length : Math.min(reviewIndex, state.words.length)} /{" "}
-              {state.words.length}
+              {reviewFinished ? reviewWords.length : Math.min(reviewIndex, reviewWords.length)} /{" "}
+              {reviewWords.length}
             </span>
           </div>
           {reviewFinished ? (
@@ -665,7 +711,7 @@ export function App() {
               <div className="complete-mark">✓</div>
               <h2>오늘 복습 완료</h2>
               <p>
-                {state.words.length}개 단어를 모두 확인했어요.
+                {reviewWords.length}개 단어를 모두 확인했어요.
                 <br />
                 기억함 {reviewStats.known}개 · 어려웠음 {reviewStats.hard}개
               </p>
@@ -681,7 +727,7 @@ export function App() {
               <div className="review-progress">
                 <span
                   style={{
-                    width: `${Math.min(((reviewIndex + (reviewRevealed ? 1 : 0)) / Math.max(state.words.length, 1)) * 100, 100)}%`,
+                    width: `${Math.min(((reviewIndex + (reviewRevealed ? 1 : 0)) / Math.max(reviewWords.length, 1)) * 100, 100)}%`,
                   }}
                 />
               </div>
@@ -707,7 +753,7 @@ export function App() {
                 <div className="review-actions">
                   <button className="review-hard" type="button" onClick={() => markReviewed("hard")}>어려웠어요</button>
                   <button className="primary" type="button" onClick={markReviewed}>
-                    {reviewIndex + 1 >= state.words.length ? "복습 끝내기" : "기억했어요"}
+                    {reviewIndex + 1 >= reviewWords.length ? "복습 끝내기" : "기억했어요"}
                   </button>
                 </div>
               ) : (

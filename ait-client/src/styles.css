@@ -98,6 +98,15 @@ button {
 .save-status.error {
   color: var(--danger);
 }
+.import-button {
+  padding: 7px 8px;
+  border-radius: 8px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 11px;
+  cursor: pointer;
+}
+.import-button input { display: none; }
 .icon {
   width: 20px;
   height: 20px;

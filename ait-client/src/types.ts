@@ -7,6 +7,9 @@ export type Word = {
   memo?: string;
   tags: string[];
   photo?: string;
+  reviewDueAt?: string;
+  reviewLevel?: number;
+  lastReviewedAt?: string;
 };
 
 export type RelationType =
