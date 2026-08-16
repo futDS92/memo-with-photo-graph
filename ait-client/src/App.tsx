@@ -197,6 +197,9 @@ export function App() {
   const [relationTo, setRelationTo] = useState("");
   const [relationType, setRelationType] = useState<RelationType>("related");
   const [clozeInput, setClozeInput] = useState("");
+  const [graphSubject, setGraphSubject] = useState("All");
+  const [graphFocusId, setGraphFocusId] = useState("all");
+  const [graphZoom, setGraphZoom] = useState(1);
   const stateReady = useRef(false);
   const syncVersion = useRef(0);
   const syncQueue = useRef(Promise.resolve());
@@ -208,7 +211,14 @@ export function App() {
   const dueCards = useMemo(() => cards.filter(isDue), [cards, nowTick]);
   const mistakeCards = useMemo(() => cards.filter((card) => (card.incorrectCount || 0) > (card.correctCount || 0)), [cards]);
   const filteredCards = useMemo(() => cards.filter((card) => (subject === "All" || cardSubject(card) === subject) && [card.term, card.definition, ...card.tags].join(" ").toLowerCase().includes(search.toLowerCase())), [cards, search, subject]);
-  const graphCards = useMemo(() => cards.slice(0, 12), [cards]);
+  const graphSubjects = useMemo(() => ["All", ...Array.from(new Set(cards.map(cardSubject)))], [cards]);
+  const graphCards = useMemo(() => {
+    const base = cards.filter((card) => graphSubject === "All" || cardSubject(card) === graphSubject);
+    if (graphFocusId === "all") return base.slice(0, 12);
+    const connected = new Set([graphFocusId]);
+    state.relations.forEach((relation) => { if (relation.fromWordId === graphFocusId) connected.add(relation.toWordId); if (relation.toWordId === graphFocusId) connected.add(relation.fromWordId); });
+    return base.filter((card) => connected.has(card.id)).slice(0, 12);
+  }, [cards, graphFocusId, graphSubject, state.relations]);
   const currentCard = cards.find((card) => card.id === studyIds[studyIndex]);
 
   const notify = (message: string) => {
@@ -261,6 +271,7 @@ export function App() {
       if (element.getAttribute("aria-label") === "Remove connection") element.setAttribute("aria-label", koreanUi["Remove connection"]);
     });
   }, [view, state.words.length, state.relations.length, sheet, revealed]);
+  useEffect(() => { document.documentElement.style.setProperty("--graph-zoom", String(graphZoom)); }, [graphZoom]);
   useEffect(() => {
     if (!stateReady.current) return;
     const version = ++syncVersion.current;
@@ -323,6 +334,7 @@ export function App() {
   const removeRelation = (id: string) => setState((current) => ({ ...current, schemaVersion: 2, updatedAt: new Date().toISOString(), relations: current.relations.filter((relation) => relation.id !== id) }));
 
   return <main className="study-app">
+    {view === "graph" && <div className="graph-controls"><select value={graphSubject} onChange={(event) => { setGraphSubject(event.target.value); setGraphFocusId("all"); }} aria-label="과목 필터">{graphSubjects.map((item) => <option value={item} key={item}>{item === "All" ? "전체 과목" : item}</option>)}</select><select value={graphFocusId} onChange={(event) => setGraphFocusId(event.target.value)} aria-label="중심 개념"><option value="all">전체 개념</option>{cards.filter((card) => graphSubject === "All" || cardSubject(card) === graphSubject).map((card) => <option value={card.id} key={card.id}>{card.term}</option>)}</select><div className="graph-zoom"><button type="button" onClick={() => setGraphZoom((zoom) => Math.max(.8, Number((zoom - .1).toFixed(1))))} aria-label="축소">−</button><span>{Math.round(graphZoom * 100)}%</span><button type="button" onClick={() => setGraphZoom((zoom) => Math.min(1.4, Number((zoom + .1).toFixed(1))))} aria-label="확대">＋</button></div></div>}
     <header className="study-topbar"><div className="study-brand"><div className="study-logo">q</div><div><strong>study deck</strong><small>Turn your syllabus into cards</small></div></div><div className="data-actions"><label className="data-button">Import<input type="file" accept="application/json,.json" onChange={importJson} /></label><button className="data-button" type="button" onClick={exportJson}>Export</button><span className={`sync-pill ${syncError ? "error" : ""}`}>{syncing ? "Saving" : syncError ? "Saved on device" : "Saved"}</span></div></header>
 
     {view === "home" && <section className="study-home"><div className="study-greeting"><p>Today’s study</p><h1>Review today.<br /><em>Remember more.</em></h1></div><button className="hero-study" type="button" onClick={() => openStudy("due")}><span><small>Due today</small><strong>{dueCards.length} cards</strong><b>Start studying <Icon name="chevron" /></b></span><div className="hero-ring"><span>{cards.length ? Math.round(((cards.length - dueCards.length) / cards.length) * 100) : 0}%</span></div></button><div className="quick-grid"><button type="button" onClick={() => setView("decks")}><Icon name="deck" /><strong>{cards.length}</strong><small>Total cards</small></button><button type="button" onClick={() => setView("mistakes")}><Icon name="study" /><strong>{mistakeCards.length}</strong><small>Mistakes</small></button><button type="button" onClick={() => setView("graph")}><Icon name="graph" /><strong>{state.relations.length}</strong><small>Connections</small></button></div><div className="study-section-head"><div><p>Subjects</p><h2>Where do you want to start?</h2></div><button type="button" onClick={() => setView("decks")}>View all</button></div><div className="subject-list">{subjects.slice(1, 5).map((item) => <button type="button" key={item} onClick={() => { setSubject(item); setView("decks"); }}><span className="subject-dot" /><span><strong>{item}</strong><small>{cards.filter((card) => cardSubject(card) === item).length} cards · {cards.filter((card) => cardSubject(card) === item && isDue(card)).length} due</small></span><Icon name="chevron" /></button>)}</div></section>}
