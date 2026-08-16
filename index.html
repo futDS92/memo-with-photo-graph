@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f6f2ea" />
+    <meta
+      name="description"
+      content="사진을 붙이고 단어 관계를 맵처럼 탐색하는 모바일 단어장 앱입니다."
+    />
+    <title>memo with photo graph</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand-mark">m</div>
+          <div>
+            <strong>memo with photo graph</strong>
+            <small>사진 + 관계 + 맵</small>
+          </div>
+        </div>
+        <button class="ghost" id="exportButton" type="button">내보내기</button>
+      </header>
+
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">local-first vocabulary</p>
+          <h1>단어를 사진과 관계로 기억하는 앱</h1>
+          <p class="lead">
+            단어에 사진을 붙이고, 상위·하위 개념을 연결해 맵처럼 탐색하세요.
+            데이터는 서버와 동기화되고, 오프라인에서는 로컬 캐시로 이어집니다.
+          </p>
+        </div>
+        <div class="hero-stats" id="stats"></div>
+      </section>
+
+      <section class="search-card">
+        <label class="search">
+          <span>검색</span>
+          <input id="searchInput" type="search" placeholder="단어, 뜻, 태그, 메모 검색" />
+        </label>
+        <div class="quick-filters" id="quickFilters"></div>
+      </section>
+
+      <section class="tabs" aria-label="보기 전환">
+        <button class="tab active" type="button" data-view="library">단어장</button>
+        <button class="tab" type="button" data-view="map">맵</button>
+        <button class="tab" type="button" data-view="relations">관계</button>
+      </section>
+
+      <section class="panel" id="viewPanel"></section>
+
+      <section class="composer-card">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Add Word</p>
+            <h2>새 단어 추가</h2>
+          </div>
+          <button class="ghost" id="seedButton" type="button">샘플 복원</button>
+        </div>
+
+        <form id="wordForm" class="word-form">
+          <div class="grid-two">
+            <label>
+              단어
+              <input id="termInput" type="text" placeholder="예: orchard" required />
+            </label>
+            <label>
+              품사
+              <input id="posInput" type="text" placeholder="noun" />
+            </label>
+          </div>
+
+          <label>
+            뜻
+            <textarea id="definitionInput" rows="3" placeholder="사과나무 과수원" required></textarea>
+          </label>
+
+          <label>
+            예문
+            <textarea id="exampleInput" rows="2" placeholder="We walked through the orchard in spring."></textarea>
+          </label>
+
+          <label>
+            메모
+            <textarea id="memoInput" rows="2" placeholder="연상 포인트나 암기 팁"></textarea>
+          </label>
+
+          <div class="grid-two">
+            <label>
+              태그
+              <input id="tagsInput" type="text" placeholder="nature, food" />
+            </label>
+            <label>
+              사진
+              <input id="photoInput" type="file" accept="image/*" />
+            </label>
+          </div>
+
+          <div class="inline-actions">
+            <button class="primary" type="submit">저장</button>
+            <button class="ghost" id="clearButton" type="button">초기화</button>
+          </div>
+        </form>
+      </section>
+    </main>
+
+    <div class="sheet" id="detailSheet" hidden>
+      <div class="sheet-backdrop" id="sheetBackdrop"></div>
+      <div class="sheet-panel">
+        <div class="sheet-handle"></div>
+        <div class="sheet-head">
+          <div>
+            <p class="eyebrow">Word Detail</p>
+            <h2 id="detailTitle">단어</h2>
+          </div>
+          <button class="ghost" id="closeSheetButton" type="button">닫기</button>
+        </div>
+        <div class="detail-photo" id="detailPhoto"></div>
+        <form class="detail-form" id="detailForm">
+          <div class="grid-two">
+            <label>
+              단어
+              <input id="detailTermInput" type="text" />
+            </label>
+            <label>
+              품사
+              <input id="detailPosInput" type="text" />
+            </label>
+          </div>
+          <label>
+            뜻
+            <textarea id="detailDefinitionInput" rows="3"></textarea>
+          </label>
+          <label>
+            예문
+            <textarea id="detailExampleInput" rows="2"></textarea>
+          </label>
+          <label>
+            메모
+            <textarea id="detailMemoInput" rows="2"></textarea>
+          </label>
+          <div class="grid-two">
+            <label>
+              태그
+              <input id="detailTagsInput" type="text" />
+            </label>
+            <label>
+              사진 교체
+              <input id="detailPhotoInput" type="file" accept="image/*" />
+            </label>
+          </div>
+          <div class="inline-actions">
+            <button class="primary" type="submit">변경 저장</button>
+            <button class="ghost" id="removePhotoButton" type="button">사진 제거</button>
+          </div>
+          <button class="danger" id="deleteWordButton" type="button">단어 삭제</button>
+        </form>
+        <div class="detail-section">
+          <p class="detail-meta" id="detailMeta"></p>
+        </div>
+        <div class="detail-section">
+          <h3>관계 연결</h3>
+          <form id="relationForm" class="relation-form">
+            <select id="relationType"></select>
+            <select id="relationTarget"></select>
+            <input id="relationLabel" type="text" placeholder="라벨(선택)" />
+            <button class="primary" type="submit">연결</button>
+          </form>
+        </div>
+        <div class="detail-section">
+          <h3>연결된 단어</h3>
+          <div class="relation-list" id="relationList"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast" hidden></div>
+    <script src="./app.js"></script>
+  </body>
+</html>

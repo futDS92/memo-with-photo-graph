@@ -1,0 +1,9 @@
+{
+  "name": "memo-with-photo-graph",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "format": "prettier --write ."
+  }
+}
