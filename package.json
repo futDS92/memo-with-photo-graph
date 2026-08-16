@@ -3,7 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node server.mjs",
-    "format": "prettier --write ."
+    "dev": "npm --prefix ait-client run dev",
+    "build": "npm --prefix ait-client run build",
+    "preview": "npm --prefix ait-client run preview",
+    "start:api": "node server.mjs",
+    "format": "prettier --write ait-client/src ait-client/index.html server.mjs"
   }
 }

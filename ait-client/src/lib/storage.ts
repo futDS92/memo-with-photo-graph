@@ -3,6 +3,42 @@ import { seedState } from "../data/seed";
 import { storageKeys } from "../types";
 
 const API_STATE_URL = import.meta.env.VITE_API_STATE_URL || "/api/state";
+const DB_NAME = "photo-graph";
+const DB_VERSION = 1;
+const STATE_STORE = "state";
+
+function openStateDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(STATE_STORE)) {
+        request.result.createObjectStore(STATE_STORE);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function readIndexedState(): Promise<AppState | null> {
+  if (!("indexedDB" in window)) return null;
+  const db = await openStateDb();
+  return new Promise((resolve, reject) => {
+    const request = db.transaction(STATE_STORE, "readonly").objectStore(STATE_STORE).get("current");
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function writeIndexedState(state: AppState) {
+  if (!("indexedDB" in window)) return;
+  const db = await openStateDb();
+  await new Promise<void>((resolve, reject) => {
+    const request = db.transaction(STATE_STORE, "readwrite").objectStore(STATE_STORE).put(state, "current");
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+}
 
 export function loadLocalState(): AppState {
   try {
@@ -28,6 +64,19 @@ export function saveLocalState(state: AppState) {
   } catch {
     // ignore storage errors
   }
+  void writeIndexedState(state).catch(() => undefined);
+}
+
+export async function loadLocalStateAsync(): Promise<AppState> {
+  try {
+    const indexedState = await readIndexedState();
+    if (indexedState && Array.isArray(indexedState.words) && Array.isArray(indexedState.relations)) {
+      return indexedState;
+    }
+  } catch {
+    // fall back to the synchronous cache
+  }
+  return loadLocalState();
 }
 
 export function loadPersistedView(): string {
@@ -78,17 +127,19 @@ export function savePersistedTag(tag: string) {
   }
 }
 
-export async function hydrateStateFromServer(): Promise<AppState | null> {
+export async function hydrateStateFromServer(localState?: AppState): Promise<AppState | null> {
   try {
     const response = await fetch(API_STATE_URL, { cache: "no-store" });
     if (!response.ok) return null;
     const data = (await response.json()) as AppState;
     if (!Array.isArray(data.words) || !Array.isArray(data.relations)) return null;
-    return {
+    const remoteState = {
       words: data.words,
       relations: data.relations,
       updatedAt: data.updatedAt || new Date().toISOString(),
     };
+    if (localState && localState.updatedAt > remoteState.updatedAt) return localState;
+    return remoteState;
   } catch {
     return null;
   }

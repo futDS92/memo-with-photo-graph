@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { seedState } from "./data/seed";
 import { buildMapLayout, getRelatedWords } from "./lib/map";
 import {
   hydrateStateFromServer,
   loadLocalState,
+  loadLocalStateAsync,
   loadPersistedTag,
   loadPersistedView,
   loadPersistedWordId,
@@ -13,149 +14,168 @@ import {
   savePersistedWordId,
   syncStateToServer,
 } from "./lib/storage";
-import { getTossAppVersionSafe } from "./platform/toss";
 import { relationLabel, relationTypes, type AppState, type RelationType, type Word } from "./types";
 
-const defaultTimeSlots = [
-  "09:00",
-  "09:30",
-  "10:00",
-  "10:30",
-  "13:00",
-  "13:30",
-  "14:00",
-  "14:30",
-  "15:00",
-  "15:30",
-  "16:00",
-  "16:30",
-  "18:00",
-  "18:30",
-];
-
-function escapeHtml(value: string) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
+type View = "home" | "library" | "map" | "review";
 
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
+    reader.onload = () => {
+      const image = new Image();
+      image.onload = () => {
+        const maxSize = 1600;
+        const ratio = Math.min(1, maxSize / Math.max(image.width, image.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(image.width * ratio));
+        canvas.height = Math.max(1, Math.round(image.height * ratio));
+        canvas.getContext("2d")?.drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", 0.82));
+      };
+      image.onerror = reject;
+      image.src = String(reader.result);
+    };
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
 }
 
-function formatDate(date: Date) {
-  return date.toISOString().slice(0, 10);
-}
-
-function getTodayPlus(days: number) {
-  const date = new Date();
-  date.setDate(date.getDate() + days);
-  return date;
-}
-
-function createBusyMatrix(rangeStart: string, rangeEnd: string) {
-  const matrix: Record<string, Record<string, boolean>> = {};
-  const startDate = new Date(`${rangeStart}T00:00:00`);
-  const endDate = new Date(`${rangeEnd}T00:00:00`);
-
-  for (const date = new Date(startDate); date <= endDate; date.setDate(date.getDate() + 1)) {
-    const key = formatDate(date);
-    matrix[key] = {};
-    defaultTimeSlots.forEach((slot, index) => {
-      matrix[key][slot] = index % 7 === 0 || index === 4;
-    });
-  }
-
-  return matrix;
-}
-
 function uniqueTags(words: Word[]) {
-  const tags = new Set<string>();
-  words.forEach((word) => word.tags.forEach((tag) => tags.add(tag)));
-  return ["all", ...Array.from(tags).sort()];
+  return ["all", ...Array.from(new Set(words.flatMap((word) => word.tags))).sort()];
 }
 
 function matchesWord(word: Word, term: string) {
   if (!term) return true;
-  const haystack = [word.term, word.definition, word.example, word.memo, word.pos, ...word.tags]
+  return [word.term, word.definition, word.example, word.memo, word.pos, ...word.tags]
     .filter(Boolean)
     .join(" ")
-    .toLowerCase();
-  return haystack.includes(term);
-}
-
-function profileForRoute(routeName: string) {
-  if (routeName === "멘토링") {
-    return {
-      label: "멘토링",
-      duration: 30,
-      subtitle: "조언과 방향 점검이 필요한 만남입니다.",
-      agenda: ["상대가 기대하는 도움의 범위", "가장 필요한 조언 1~2개", "후속 자료 또는 추천"],
-    };
-  }
-  if (routeName === "소개 미팅") {
-    return {
-      label: "소개 미팅",
-      duration: 30,
-      subtitle: "짧게 인사하고 적합성을 확인합니다.",
-      agenda: ["만남 목적", "후속 미팅 필요 여부", "다음 연락 방식"],
-    };
-  }
-  if (routeName === "심화 논의") {
-    return {
-      label: "심화 논의",
-      duration: 30,
-      subtitle: "기술과 사업을 깊게 보는 만남입니다.",
-      agenda: ["문제 정의와 배경", "현재 접근 방식과 병목", "구체적 협업 또는 검토 포인트"],
-    };
-  }
-  return {
-    label: "커피챗",
-    duration: 30,
-    subtitle: "가볍게 대화할 수 있는 시간만 공개합니다.",
-    agenda: ["서로의 배경과 연결 지점", "현재 관심 주제 1개", "다음 액션 또는 후속 연락"],
-  };
+    .toLowerCase()
+    .includes(term);
 }
 
 function renderPhoto(photo: string | undefined, label: string) {
-  if (photo) {
-    return <img src={photo} alt={label} />;
-  }
-  return <div className="photo-fallback">{label}</div>;
+  return photo ? (
+    <img src={photo} alt={label} />
+  ) : (
+    <div className="photo-fallback">{label.slice(0, 1)}</div>
+  );
+}
+
+function Icon({
+  name,
+}: {
+  name: "home" | "book" | "map" | "plus" | "search" | "close" | "download" | "chevron" | "image";
+}) {
+  const paths: Record<string, ReactNode> = {
+    home: (
+      <>
+        <path d="m3 10 9-7 9 7" />
+        <path d="M5 9v11h14V9" />
+        <path d="M9 20v-6h6v6" />
+      </>
+    ),
+    book: (
+      <>
+        <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v17H6.5A2.5 2.5 0 0 1 4 17.5z" />
+        <path d="M4 5.5v12" />
+        <path d="M8 7h8M8 11h8" />
+      </>
+    ),
+    map: (
+      <>
+        <circle cx="12" cy="12" r="3" />
+        <path d="M3 7.5 8 5l8 3 5-2.5v9L16 17l-8-3-5 2.5z" />
+      </>
+    ),
+    plus: (
+      <>
+        <path d="M12 5v14M5 12h14" />
+      </>
+    ),
+    search: (
+      <>
+        <circle cx="10.8" cy="10.8" r="6.8" />
+        <path d="m16 16 5 5" />
+      </>
+    ),
+    close: (
+      <>
+        <path d="m6 6 12 12M18 6 6 18" />
+      </>
+    ),
+    download: (
+      <>
+        <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />
+      </>
+    ),
+    chevron: <path d="m9 18 6-6-6-6" />,
+    image: (
+      <>
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <circle cx="8" cy="9" r="1.5" />
+        <path d="m4 17 5-5 3 3 2-2 5 5" />
+      </>
+    ),
+  };
+  return (
+    <svg
+      className="icon"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {paths[name]}
+    </svg>
+  );
 }
 
 export function App() {
   const [state, setState] = useState<AppState>(() => loadLocalState());
-  const [view, setView] = useState(() => loadPersistedView());
+  const [view, setView] = useState<View>(() => (loadPersistedView() as View) || "home");
   const [selectedWordId, setSelectedWordId] = useState(() =>
     loadPersistedWordId(seedState.words[0].id),
   );
   const [activeTag, setActiveTag] = useState(() => loadPersistedTag());
   const [search, setSearch] = useState("");
+  const [sheet, setSheet] = useState<"detail" | "add" | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [toast, setToast] = useState("");
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [rangeStart, setRangeStart] = useState(formatDate(getTodayPlus(5)));
-  const [rangeEnd, setRangeEnd] = useState(formatDate(getTodayPlus(9)));
-  const [busyMatrix] = useState(() => createBusyMatrix(rangeStart, rangeEnd));
+  const [syncStatus, setSyncStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const stateReady = useRef(false);
+  const [reviewIndex, setReviewIndex] = useState(0);
+  const [reviewRevealed, setReviewRevealed] = useState(false);
+  const [reviewFinished, setReviewFinished] = useState(false);
+  const [reviewStats, setReviewStats] = useState({ known: 0, hard: 0 });
+  const [mapScale, setMapScale] = useState(1);
+  const [mapOffset, setMapOffset] = useState({ x: 0, y: 0 });
+  const [mapDragStart, setMapDragStart] = useState<{ x: number; y: number } | null>(null);
+  const [reviewedToday, setReviewedToday] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem("memo-with-photo-graph.reviewed-today");
+      const parsed = saved ? JSON.parse(saved) : null;
+      return parsed?.date === new Date().toISOString().slice(0, 10) ? parsed.ids : [];
+    } catch {
+      return [];
+    }
+  });
 
   const selectedWord = state.words.find((word) => word.id === selectedWordId) || state.words[0];
-  const routeProfile = useMemo(() => profileForRoute("커피챗"), []);
+  const reviewWord = state.words[reviewIndex];
   const tags = useMemo(() => uniqueTags(state.words), [state.words]);
-  const filteredWords = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return state.words.filter((word) => {
-      const tagOk = activeTag === "all" || word.tags.includes(activeTag);
-      return tagOk && matchesWord(word, term);
-    });
-  }, [activeTag, search, state.words]);
+  const filteredWords = useMemo(
+    () =>
+      state.words.filter((word) => {
+        return (
+          (activeTag === "all" || word.tags.includes(activeTag)) &&
+          matchesWord(word, search.trim().toLowerCase())
+        );
+      }),
+    [activeTag, search, state.words],
+  );
   const relatedWords = useMemo(
     () => getRelatedWords(state.words, state.relations, selectedWord?.id || ""),
     [state.relations, state.words, selectedWord?.id],
@@ -166,56 +186,100 @@ export function App() {
   );
 
   useEffect(() => {
+    if (!stateReady.current) return;
     const timer = window.setTimeout(() => {
+      setSyncStatus("saving");
       saveLocalState(state);
-      syncStateToServer(state).catch(() => {
-        // keep local state if the API is offline
-      });
+      syncStateToServer(state)
+        .then(() => setSyncStatus("saved"))
+        .catch(() => setSyncStatus("error"));
     }, 250);
     return () => window.clearTimeout(timer);
   }, [state]);
-
   useEffect(() => {
     savePersistedView(view);
   }, [view]);
-
   useEffect(() => {
     savePersistedWordId(selectedWordId);
   }, [selectedWordId]);
-
   useEffect(() => {
     savePersistedTag(activeTag);
   }, [activeTag]);
-
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "memo-with-photo-graph.reviewed-today",
+        JSON.stringify({ date: new Date().toISOString().slice(0, 10), ids: reviewedToday }),
+      );
+    } catch {
+      /* ignore storage errors */
+    }
+  }, [reviewedToday]);
+  useEffect(() => {
+    if (state.words.length && !state.words.some((word) => word.id === selectedWordId)) {
+      setSelectedWordId(state.words[0].id);
+    }
+  }, [selectedWordId, state.words]);
   useEffect(() => {
     let mounted = true;
-    hydrateStateFromServer().then((serverState) => {
-      if (!mounted || !serverState) return;
-      setState(serverState);
-    });
+    loadLocalStateAsync()
+      .then((localState) => {
+        if (!mounted) return null;
+        stateReady.current = true;
+        setState(localState);
+        return hydrateStateFromServer(localState);
+      })
+      .then((serverState) => {
+        if (mounted && serverState) setState(serverState);
+      });
     return () => {
       mounted = false;
     };
   }, []);
 
-  useEffect(() => {
-    if (!state.words.length) return;
-    if (!state.words.some((word) => word.id === selectedWordId)) {
-      setSelectedWordId(state.words[0].id);
-    }
-  }, [selectedWordId, state.words]);
-
-  const stats = [
-    { label: "words", value: state.words.length },
-    { label: "relations", value: state.relations.length },
-    { label: "photos", value: state.words.filter((word) => word.photo).length },
-  ];
-
-  const openToast = (message: string) => {
+  const notify = (message: string) => {
     setToast(message);
-    window.setTimeout(() => setToast(""), 2000);
+    window.setTimeout(() => setToast(""), 1800);
   };
-
+  const chooseWord = (id: string) => {
+    setSelectedWordId(id);
+    setSheet("detail");
+  };
+  const resetMap = () => {
+    setMapScale(1);
+    setMapOffset({ x: 0, y: 0 });
+  };
+  const beginMapDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setMapDragStart({ x: event.clientX - mapOffset.x, y: event.clientY - mapOffset.y });
+  };
+  const moveMap = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!mapDragStart) return;
+    setMapOffset({ x: event.clientX - mapDragStart.x, y: event.clientY - mapDragStart.y });
+  };
+  const startReview = () => {
+    const firstPending = state.words.findIndex((word) => !reviewedToday.includes(word.id));
+    setReviewIndex(firstPending >= 0 ? firstPending : 0);
+    setReviewRevealed(false);
+    setReviewFinished(false);
+    setReviewStats({ known: 0, hard: 0 });
+    setView("review");
+  };
+  const markReviewed = (result: "known" | "hard" = "known") => {
+    if (!reviewWord) return;
+    setReviewStats((current) => ({ ...current, [result]: current[result] + 1 }));
+    setReviewedToday((current) =>
+      current.includes(reviewWord.id) ? current : [...current, reviewWord.id],
+    );
+    if (reviewIndex + 1 >= state.words.length) {
+      setReviewFinished(true);
+      setReviewRevealed(false);
+      notify("오늘 복습을 끝냈어요");
+    } else {
+      setReviewIndex((current) => current + 1);
+      setReviewRevealed(false);
+    }
+  };
   const updateWord = (patch: Partial<Word>) => {
     if (!selectedWord) return;
     setState((current) => ({
@@ -226,140 +290,111 @@ export function App() {
       ),
     }));
   };
-
   const addWord = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = event.currentTarget;
-    const formData = new FormData(form);
-    const term = String(formData.get("term") || "").trim();
-    const definition = String(formData.get("definition") || "").trim();
+    const data = new FormData(form);
+    const term = String(data.get("term") || "").trim();
+    const definition = String(data.get("definition") || "").trim();
     if (!term || !definition) return;
-    const photoFile = formData.get("photo");
-    const photo =
-      photoFile instanceof File && photoFile.size > 0 ? await fileToDataUrl(photoFile) : "";
-    const tagsValue = String(formData.get("tags") || "");
+    const file = data.get("photo");
+    const photo = file instanceof File && file.size ? await fileToDataUrl(file) : "";
     const word: Word = {
       id: `word-${crypto.randomUUID()}`,
       term,
-      pos: String(formData.get("pos") || "").trim(),
       definition,
-      example: String(formData.get("example") || "").trim(),
-      memo: String(formData.get("memo") || "").trim(),
-      tags: tagsValue
+      photo,
+      pos: String(data.get("pos") || "").trim(),
+      example: String(data.get("example") || "").trim(),
+      memo: String(data.get("memo") || "").trim(),
+      tags: String(data.get("tags") || "")
         .split(",")
         .map((tag) => tag.trim())
         .filter(Boolean),
-      photo,
     };
-
     setState((current) => ({
       ...current,
       updatedAt: new Date().toISOString(),
       words: [word, ...current.words],
     }));
     setSelectedWordId(word.id);
-    setDrawerOpen(true);
     form.reset();
-    openToast("단어를 저장했습니다.");
+    setSheet("detail");
+    notify("단어를 저장했어요");
   };
-
   const saveDetail = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const form = event.currentTarget;
-    const formData = new FormData(form);
-    const photoFile = formData.get("photo");
-    let photo = selectedWord?.photo || "";
-    if (photoFile instanceof File && photoFile.size > 0) {
-      photo = await fileToDataUrl(photoFile);
-    }
-
+    const data = new FormData(event.currentTarget);
+    const file = data.get("photo");
+    const photo =
+      file instanceof File && file.size ? await fileToDataUrl(file) : selectedWord?.photo || "";
     updateWord({
-      term: String(formData.get("term") || "").trim(),
-      pos: String(formData.get("pos") || "").trim(),
-      definition: String(formData.get("definition") || "").trim(),
-      example: String(formData.get("example") || "").trim(),
-      memo: String(formData.get("memo") || "").trim(),
-      tags: String(formData.get("tags") || "")
+      term: String(data.get("term") || "").trim(),
+      pos: String(data.get("pos") || "").trim(),
+      definition: String(data.get("definition") || "").trim(),
+      example: String(data.get("example") || "").trim(),
+      memo: String(data.get("memo") || "").trim(),
+      tags: String(data.get("tags") || "")
         .split(",")
         .map((tag) => tag.trim())
         .filter(Boolean),
       photo,
     });
-    openToast("단어를 수정했습니다.");
+    notify("변경사항을 저장했어요");
   };
-
   const addRelation = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const form = event.currentTarget;
-    const formData = new FormData(form);
-    const toWordId = String(formData.get("target") || "");
-    const type = String(formData.get("type") || "related") as RelationType;
-    const label = String(formData.get("label") || "").trim();
-    if (!toWordId || !selectedWord) return;
-
+    const data = new FormData(event.currentTarget);
+    const toWordId = String(data.get("target") || "");
+    if (!selectedWord || !toWordId) return;
+    const type = String(data.get("type") || "related") as RelationType;
+    const label = String(data.get("label") || "").trim();
+    const alreadyExists = state.relations.some(
+      (relation) =>
+        relation.fromWordId === selectedWord.id &&
+        relation.toWordId === toWordId &&
+        relation.type === type,
+    );
+    if (alreadyExists) {
+      notify("이미 연결된 관계예요");
+      return;
+    }
     setState((current) => ({
       ...current,
       updatedAt: new Date().toISOString(),
       relations: [
-        {
-          id: `rel-${crypto.randomUUID()}`,
-          fromWordId: selectedWord.id,
-          toWordId,
-          type,
-          label,
-        },
+        { id: `rel-${crypto.randomUUID()}`, fromWordId: selectedWord.id, toWordId, type, label },
         ...current.relations,
       ],
     }));
-    form.reset();
-    openToast("관계를 연결했습니다.");
+    event.currentTarget.reset();
+    notify("관계를 연결했어요");
   };
-
-  const removeSelectedWord = () => {
+  const removeWord = () => {
     if (!selectedWord) return;
-    const confirmDelete = window.confirm(`"${selectedWord.term}" 단어를 삭제할까요?`);
-    if (!confirmDelete) return;
-
-    setState((current) => {
-      const remainingWords = current.words.filter((word) => word.id !== selectedWord.id);
-      const remainingRelations = current.relations.filter(
+    setState((current) => ({
+      ...current,
+      updatedAt: new Date().toISOString(),
+      words: current.words.filter((word) => word.id !== selectedWord.id),
+      relations: current.relations.filter(
         (relation) =>
           relation.fromWordId !== selectedWord.id && relation.toWordId !== selectedWord.id,
-      );
-      return {
-        ...current,
-        updatedAt: new Date().toISOString(),
-        words: remainingWords,
-        relations: remainingRelations,
-      };
-    });
-
-    const nextWord = state.words.find((word) => word.id !== selectedWord.id);
-    if (nextWord) {
-      setSelectedWordId(nextWord.id);
-    }
-    setDrawerOpen(false);
-    openToast("단어를 삭제했습니다.");
+      ),
+    }));
+    setSheet(null);
+    setDeleteConfirmOpen(false);
+    notify("단어를 삭제했어요");
   };
-
-  const seedData = () => {
-    setState(structuredClone(seedState));
-    setSelectedWordId(seedState.words[0].id);
-    setActiveTag("all");
-    setSearch("");
-    setDrawerOpen(true);
-    openToast("샘플 데이터를 복원했습니다.");
-  };
-
   const exportJson = () => {
-    const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
+    const url = URL.createObjectURL(
+      new Blob([JSON.stringify(state, null, 2)], { type: "application/json" }),
+    );
     const link = document.createElement("a");
     link.href = url;
-    link.download = "memo-with-photo-graph-export.json";
+    link.download = "memo-with-photo-graph.json";
     link.click();
     URL.revokeObjectURL(url);
-    openToast("JSON을 내보냈습니다.");
+    notify("파일을 내보냈어요");
   };
 
   return (
@@ -368,491 +403,594 @@ export function App() {
         <div className="brand">
           <div className="brand-mark">m</div>
           <div>
-            <strong>memo with photo graph</strong>
-            <small>
-              {getTossAppVersionSafe() ? `Toss ${getTossAppVersionSafe()}` : "AI T client scaffold"}
-            </small>
+            <strong>photo graph</strong>
+            <small>나만의 단어 지도</small>
           </div>
         </div>
-        <button className="ghost" type="button" onClick={exportJson}>
-          내보내기
+        {syncStatus !== "idle" && (
+          <span className={`save-status ${syncStatus}`} aria-live="polite">
+            {syncStatus === "saving" ? "저장 중" : syncStatus === "saved" ? "저장됨" : "저장 실패"}
+          </span>
+        )}
+        <button className="icon-button" type="button" onClick={exportJson} aria-label="내보내기">
+          <Icon name="download" />
         </button>
       </header>
 
-      <section className="hero">
-        <div className="hero-copy">
-          <p className="eyebrow">AIT client scaffold</p>
-          <h1>단어를 사진과 관계로 기억하는 앱</h1>
-          <p className="lead">
-            App in Toss용으로 옮기기 쉬운 구조를 먼저 만들고, 상태는 로컬 저장과 API 동기화를 같이
-            둡니다.
-          </p>
-          <div className="route-banner">
-            <span>{routeProfile.label}</span>
-            <strong>{routeProfile.subtitle}</strong>
-          </div>
-        </div>
-        <div className="hero-stats">
-          {stats.map((item) => (
-            <div className="stat" key={item.label}>
-              <span>{item.label}</span>
-              <strong>{item.value}</strong>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="search-card">
-        <label className="search">
-          <span>검색</span>
-          <input
-            type="search"
-            placeholder="단어, 뜻, 메모, 태그 검색"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
-        </label>
-        <div className="quick-filters">
-          {tags.map((tag) => (
-            <button
-              key={tag}
-              className={`chip ${tag === activeTag ? "active" : ""}`}
-              type="button"
-              onClick={() => setActiveTag(tag)}
-            >
-              {tag === "all" ? "전체" : `#${tag}`}
+      {view === "home" && (
+        <>
+          <section className="welcome">
+            <p className="eyebrow">오늘의 기억</p>
+            <h1>무엇을 기억해둘까요?</h1>
+            <p>사진과 단어를 연결하면 오래 남아요.</p>
+            <button className="primary wide" type="button" onClick={() => setSheet("add")}>
+              <Icon name="plus" />새 단어 기록하기
             </button>
-          ))}
-        </div>
-      </section>
-
-      <section className="tabs" aria-label="보기 전환">
-        {[
-          { value: "library", label: "단어장" },
-          { value: "map", label: "맵" },
-          { value: "relations", label: "관계" },
-        ].map((tab) => (
-          <button
-            key={tab.value}
-            className={`tab ${view === tab.value ? "active" : ""}`}
-            type="button"
-            onClick={() => setView(tab.value)}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </section>
-
-      <section className="panel">
-        {view === "library" ? (
-          filteredWords.length ? (
-            <>
-              <div className="section-head">
-                <div>
-                  <p className="eyebrow">Library</p>
-                  <h2>{filteredWords.length}개 단어</h2>
-                </div>
-              </div>
-              <div className="word-list">
-                {filteredWords.map((word) => (
-                  <article
-                    className={`word-card ${word.id === selectedWordId ? "selected" : ""}`}
-                    key={word.id}
-                  >
-                    <div className="word-photo">{renderPhoto(word.photo, word.term)}</div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedWordId(word.id);
-                        setDrawerOpen(true);
-                      }}
-                    >
-                      <div className="word-copy">
-                        <strong>{word.term}</strong>
-                        <p>{word.definition}</p>
-                        <div className="word-tags">
-                          {word.tags.slice(0, 3).map((tag) => (
-                            <span className="tag" key={tag}>
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    </button>
-                  </article>
-                ))}
-              </div>
-            </>
-          ) : (
-            <div className="panel-empty">
-              <strong>검색 결과가 없습니다.</strong>
-              <span>단어, 뜻, 메모, 태그를 바꿔보세요.</span>
+          </section>
+          <section className="summary-grid">
+            <div className="summary-card">
+              <span>전체 단어</span>
+              <strong>{state.words.length}</strong>
+              <button type="button" onClick={() => setView("library")}>
+                단어장 보기 <Icon name="chevron" />
+              </button>
             </div>
-          )
-        ) : view === "map" ? (
-          selectedWord ? (
+            <div className="summary-card accent">
+              <span>연결된 관계</span>
+              <strong>{state.relations.length}</strong>
+              <button type="button" onClick={() => setView("map")}>
+                맵 둘러보기 <Icon name="chevron" />
+              </button>
+            </div>
+          </section>
+          <button className="review-banner" type="button" onClick={startReview}>
+            <span className="review-icon">↗</span>
+            <span>
+              <strong>오늘의 복습</strong>
+              <small>
+                {reviewedToday.length >= state.words.length
+                  ? "오늘 복습을 모두 완료했어요"
+                  : `${Math.max(state.words.length - reviewedToday.length, 0)}개 단어가 기다리고 있어요`}
+              </small>
+            </span>
+            <Icon name="chevron" />
+          </button>
+          <section className="section-block">
+            <div className="section-title">
+              <div>
+                <p className="eyebrow">최근 기록</p>
+                <h2>최근 추가한 단어</h2>
+              </div>
+              <button className="text-button" type="button" onClick={() => setView("library")}>
+                전체보기
+              </button>
+            </div>
+            <div className="compact-list">
+              {state.words.slice(0, 3).map((word) => (
+                <button
+                  className="compact-item"
+                  key={word.id}
+                  type="button"
+                  onClick={() => chooseWord(word.id)}
+                >
+                  <span className="mini-photo">{renderPhoto(word.photo, word.term)}</span>
+                  <span>
+                    <strong>{word.term}</strong>
+                    <small>{word.definition}</small>
+                  </span>
+                  <Icon name="chevron" />
+                </button>
+              ))}
+            </div>
+          </section>
+        </>
+      )}
+
+      {view === "library" && (
+        <section className="content-view">
+          <div className="page-title">
+            <div>
+              <p className="eyebrow">MY WORDS</p>
+              <h1>단어장</h1>
+            </div>
+            <button
+              className="circle-add"
+              type="button"
+              onClick={() => setSheet("add")}
+              aria-label="단어 추가"
+            >
+              <Icon name="plus" />
+            </button>
+          </div>
+          <label className="search-box">
+            <Icon name="search" />
+            <input
+              type="search"
+              placeholder="단어, 뜻, 메모 검색"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </label>
+          <div className="chips">
+            {tags.map((tag) => (
+              <button
+                className={tag === activeTag ? "active" : ""}
+                key={tag}
+                type="button"
+                onClick={() => setActiveTag(tag)}
+              >
+                {tag === "all" ? "전체" : `#${tag}`}
+              </button>
+            ))}
+          </div>
+          <p className="result-count">{filteredWords.length}개의 단어</p>
+          <div className="word-list">
+            {filteredWords.map((word) => (
+              <button
+                className={`word-row ${word.id === selectedWordId ? "selected" : ""}`}
+                key={word.id}
+                type="button"
+                onClick={() => chooseWord(word.id)}
+              >
+                <span className="row-photo">{renderPhoto(word.photo, word.term)}</span>
+                <span className="row-copy">
+                  <strong>
+                    {word.term}
+                    <em>{word.pos}</em>
+                  </strong>
+                  <small>{word.definition}</small>
+                  <span className="row-tags">
+                    {word.tags.slice(0, 2).map((tag) => (
+                      <i key={tag}>#{tag}</i>
+                    ))}
+                  </span>
+                </span>
+                <Icon name="chevron" />
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {view === "map" && (
+        <section className="content-view">
+          <div className="page-title">
+            <div>
+              <p className="eyebrow">EXPLORE</p>
+              <h1>단어 지도</h1>
+            </div>
+            <span className="map-count">{state.relations.length} connections</span>
+          </div>
+          {selectedWord ? (
             <>
-              <div className="section-head">
-                <div>
-                  <p className="eyebrow">Map</p>
-                  <h2>{selectedWord.term}</h2>
-                </div>
-                <div className="map-toolbar">
-                  <button className="ghost" type="button" onClick={() => setDrawerOpen(true)}>
-                    중심
-                  </button>
-                  <button className="ghost" type="button" onClick={seedData}>
-                    재배치
-                  </button>
-                </div>
+              <div className="map-focus">
+                <span>현재 중심 단어</span>
+                <strong>{selectedWord.term}</strong>
+                <small>{relatedWords.length}개의 단어와 연결됨</small>
               </div>
               <div className="map-wrap">
-                <div className="map-canvas">
-                  <svg viewBox="0 0 1000 700" preserveAspectRatio="none" aria-hidden="true">
-                    <defs>
-                      <marker
-                        id="arrow"
-                        markerWidth="10"
-                        markerHeight="10"
-                        refX="8"
-                        refY="3.5"
-                        orient="auto"
-                        markerUnits="strokeWidth"
-                      >
-                        <path d="M0,0 L0,7 L8,3.5 z" fill="rgba(46,107,91,0.22)" />
-                      </marker>
-                    </defs>
-                    {mapLayout.edges.map((edge, index) => (
-                      <g key={`${edge.x1}-${edge.y1}-${index}`}>
+                <div className="map-controls">
+                  <button
+                    type="button"
+                    onClick={() => setMapScale((scale) => Math.min(1.8, scale + 0.15))}
+                  >
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMapScale((scale) => Math.max(0.7, scale - 0.15))}
+                  >
+                    −
+                  </button>
+                  <button type="button" onClick={resetMap}>
+                    초기화
+                  </button>
+                </div>
+                <div
+                  className="map-canvas"
+                  onPointerDown={beginMapDrag}
+                  onPointerMove={moveMap}
+                  onPointerUp={() => setMapDragStart(null)}
+                  onPointerCancel={() => setMapDragStart(null)}
+                >
+                  <div
+                    className="map-world"
+                    style={{
+                      transform: `translate(${mapOffset.x}px, ${mapOffset.y}px) scale(${mapScale})`,
+                    }}
+                  >
+                    <svg viewBox="0 0 1000 700" preserveAspectRatio="none" aria-hidden="true">
+                      {mapLayout.edges.map((edge, index) => (
                         <line
+                          key={index}
                           x1={edge.x1}
                           y1={edge.y1}
                           x2={edge.x2}
                           y2={edge.y2}
-                          stroke="rgba(46,107,91,0.18)"
-                          strokeWidth="3"
+                          stroke="rgba(49,130,246,.18)"
+                          strokeWidth="4"
                           strokeLinecap="round"
-                          markerEnd="url(#arrow)"
                         />
-                        <text
-                          x={(edge.x1 + edge.x2) / 2}
-                          y={(edge.y1 + edge.y2) / 2 - 8}
-                          fill="rgba(21,24,21,0.52)"
-                          fontSize="16"
-                          fontFamily="Inter, Arial, sans-serif"
-                        >
-                          {edge.label}
-                        </text>
-                      </g>
-                    ))}
-                  </svg>
-                  {mapLayout.nodes.map((node) => (
-                    <div
-                      className={`node ${node.center ? "center" : ""}`}
-                      key={node.word.id}
-                      style={{
-                        left: `${(node.x / 10).toFixed(2)}%`,
-                        top: `${(node.y / 7).toFixed(2)}%`,
-                      }}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedWordId(node.word.id);
-                          setDrawerOpen(true);
+                      ))}
+                    </svg>
+                    {mapLayout.nodes.map((node) => (
+                      <div
+                        className={`node ${node.center ? "center" : ""}`}
+                        key={node.word.id}
+                        style={{
+                          left: `${(node.x / 10).toFixed(2)}%`,
+                          top: `${(node.y / 7).toFixed(2)}%`,
                         }}
                       >
-                        <div className="node-card">
-                          <div className="node-photo">
-                            {renderPhoto(node.word.photo, node.word.term)}
-                          </div>
-                          <div className="node-copy">
+                        <button type="button" onClick={() => chooseWord(node.word.id)}>
+                          <div className="node-card">
+                            <div className="node-photo">
+                              {renderPhoto(node.word.photo, node.word.term)}
+                            </div>
                             <strong>{node.word.term}</strong>
-                            <span>{node.word.pos || "word"}</span>
                           </div>
-                        </div>
-                      </button>
-                    </div>
-                  ))}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
+              <div className="map-hint">노드를 눌러 단어를 중심으로 바꿔보세요</div>
             </>
           ) : (
-            <div className="panel-empty">
-              <strong>중심 단어가 없습니다.</strong>
-              <span>단어를 먼저 추가하세요.</span>
-            </div>
-          )
-        ) : selectedWord ? (
-          <>
-            <div className="section-head">
-              <div>
-                <p className="eyebrow">Relations</p>
-                <h2>{selectedWord.term}</h2>
-              </div>
-            </div>
-            <div className="relation-list">
-              {relatedWords.length ? (
-                relatedWords.map((item) => (
-                  <div className="relation-item" key={item.relation.id}>
-                    <strong>{item.word.term}</strong>
-                    <p>
-                      {relationLabel(item.displayType)}
-                      {item.relation.label ? ` · ${item.relation.label}` : ""}
-                    </p>
-                    <div className="word-tags" style={{ marginTop: 8 }}>
-                      <button
-                        className="chip"
-                        type="button"
-                        onClick={() => {
-                          setSelectedWordId(item.word.id);
-                          setDrawerOpen(true);
-                        }}
-                      >
-                        열기
-                      </button>
-                      <span className="tag">{item.word.pos || "word"}</span>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="panel-empty">
-                  <strong>아직 연결된 단어가 없습니다.</strong>
-                  <span>맵 탭에서 중심 단어를 골라 연결하세요.</span>
-                </div>
-              )}
-            </div>
-          </>
-        ) : null}
-      </section>
-
-      <section className="composer-card">
-        <div className="section-head">
-          <div>
-            <p className="eyebrow">Add Word</p>
-            <h2>새 단어 추가</h2>
-          </div>
-          <button className="ghost" type="button" onClick={seedData}>
-            샘플 복원
-          </button>
-        </div>
-
-        <form className="word-form" onSubmit={addWord}>
-          <div className="grid-two">
-            <label>
-              단어
-              <input name="term" type="text" placeholder="예: orchard" required />
-            </label>
-            <label>
-              품사
-              <input name="pos" type="text" placeholder="noun" />
-            </label>
-          </div>
-          <label>
-            뜻
-            <textarea name="definition" rows={3} placeholder="사과나무 과수원" required />
-          </label>
-          <label>
-            예문
-            <textarea
-              name="example"
-              rows={2}
-              placeholder="We walked through the orchard in spring."
-            />
-          </label>
-          <label>
-            메모
-            <textarea name="memo" rows={2} placeholder="연상 포인트나 암기 팁" />
-          </label>
-          <div className="grid-two">
-            <label>
-              태그
-              <input name="tags" type="text" placeholder="nature, food" />
-            </label>
-            <label>
-              사진
-              <input name="photo" type="file" accept="image/*" />
-            </label>
-          </div>
-          <div className="inline-actions">
-            <button className="primary" type="submit">
-              저장
-            </button>
-            <button className="ghost" type="reset">
-              초기화
-            </button>
-          </div>
-        </form>
-      </section>
-
-      <div className={`sheet ${drawerOpen ? "open" : ""}`} hidden={!drawerOpen}>
-        <div className="sheet-backdrop" onClick={() => setDrawerOpen(false)} />
-        <div className="sheet-panel">
-          <div className="sheet-handle" />
-          <div className="sheet-head">
+            <EmptyState text="단어를 먼저 추가해보세요" />
+          )}
+        </section>
+      )}
+      {view === "review" && (
+        <section className="content-view review-view">
+          <div className="page-title">
             <div>
-              <p className="eyebrow">Word Detail</p>
-              <h2>{selectedWord?.term || "단어"}</h2>
+              <p className="eyebrow">DAILY REVIEW</p>
+              <h1>오늘의 복습</h1>
             </div>
-            <button className="ghost" type="button" onClick={() => setDrawerOpen(false)}>
-              닫기
-            </button>
+            <span className="map-count">
+              {reviewFinished ? state.words.length : Math.min(reviewIndex, state.words.length)} /{" "}
+              {state.words.length}
+            </span>
           </div>
-
-          {selectedWord ? (
+          {reviewFinished ? (
+            <div className="review-complete">
+              <div className="complete-mark">✓</div>
+              <h2>오늘 복습 완료</h2>
+              <p>
+                {state.words.length}개 단어를 모두 확인했어요.
+                <br />
+                기억함 {reviewStats.known}개 · 어려웠음 {reviewStats.hard}개
+              </p>
+              <button className="secondary wide" type="button" onClick={startReview}>
+                다시 복습하기
+              </button>
+              <button className="skip-button" type="button" onClick={() => setView("home")}>
+                홈으로 돌아가기
+              </button>
+            </div>
+          ) : reviewWord ? (
             <>
-              <div className="detail-photo">
-                {renderPhoto(selectedWord.photo, selectedWord.term)}
+              <div className="review-progress">
+                <span
+                  style={{
+                    width: `${Math.min(((reviewIndex + (reviewRevealed ? 1 : 0)) / Math.max(state.words.length, 1)) * 100, 100)}%`,
+                  }}
+                />
               </div>
-              <form className="detail-form" onSubmit={saveDetail}>
-                <div className="grid-two">
-                  <label>
-                    단어
-                    <input name="term" type="text" defaultValue={selectedWord.term} />
-                  </label>
-                  <label>
-                    품사
-                    <input name="pos" type="text" defaultValue={selectedWord.pos || ""} />
-                  </label>
-                </div>
+              <div className="review-card">
+                <div className="review-photo">{renderPhoto(reviewWord.photo, reviewWord.term)}</div>
+                <p className="review-label">이 단어를 기억해보세요</p>
+                <h2>{reviewWord.term}</h2>
+                {reviewRevealed ? (
+                  <div className="review-answer">
+                    <strong>{reviewWord.definition}</strong>
+                    {reviewWord.example && <p>{reviewWord.example}</p>}
+                    {reviewWord.memo && <small>{reviewWord.memo}</small>}
+                  </div>
+                ) : (
+                  <p className="review-placeholder">
+                    뜻을 떠올린 다음
+                    <br />
+                    정답을 확인해보세요
+                  </p>
+                )}
+              </div>
+              {reviewRevealed ? (
+                <button className="primary wide" type="button" onClick={markReviewed}>
+                  {reviewIndex + 1 >= state.words.length ? "복습 끝내기" : "기억했어요"}
+                </button>
+              ) : (
+                <button
+                  className="primary wide"
+                  type="button"
+                  onClick={() => setReviewRevealed(true)}
+                >
+                  정답 보기
+                </button>
+              )}
+              <button className="skip-button" type="button" onClick={markReviewed}>
+                다음 단어
+              </button>
+            </>
+          ) : (
+            <EmptyState text="복습할 단어가 없어요" />
+          )}
+        </section>
+      )}
+
+      <nav className="bottom-nav" aria-label="주요 메뉴">
+        <button
+          className={view === "home" ? "active" : ""}
+          type="button"
+          onClick={() => setView("home")}
+        >
+          <Icon name="home" />
+          <span>홈</span>
+        </button>
+        <button
+          className={view === "library" ? "active" : ""}
+          type="button"
+          onClick={() => setView("library")}
+        >
+          <Icon name="book" />
+          <span>단어장</span>
+        </button>
+        <button className="nav-add" type="button" onClick={() => setSheet("add")}>
+          <Icon name="plus" />
+        </button>
+        <button
+          className={view === "map" ? "active" : ""}
+          type="button"
+          onClick={() => setView("map")}
+        >
+          <Icon name="map" />
+          <span>지도</span>
+        </button>
+        <button className={view === "review" ? "active" : ""} type="button" onClick={startReview}>
+          <Icon name="book" />
+          <span>복습</span>
+        </button>
+      </nav>
+
+      {sheet && (
+        <div className="sheet open">
+          <div className="sheet-backdrop" onClick={() => setSheet(null)} />
+          <div className="sheet-panel">
+            <div className="sheet-handle" />
+            <div className="sheet-head">
+              <div>
+                <p className="eyebrow">{sheet === "add" ? "NEW WORD" : "WORD DETAIL"}</p>
+                <h2>{sheet === "add" ? "새 단어 기록" : selectedWord?.term}</h2>
+              </div>
+              <button
+                className="icon-button"
+                type="button"
+                onClick={() => setSheet(null)}
+                aria-label="닫기"
+              >
+                <Icon name="close" />
+              </button>
+            </div>
+            {sheet === "add" ? (
+              <form className="detail-form" onSubmit={addWord}>
                 <label>
-                  뜻
-                  <textarea name="definition" rows={3} defaultValue={selectedWord.definition} />
+                  단어
+                  <input name="term" autoFocus placeholder="예: serendipity" required />
                 </label>
                 <label>
+                  뜻<textarea name="definition" rows={2} placeholder="뜻을 적어주세요" required />
+                </label>
+                <div className="grid-two">
+                  <label>
+                    품사
+                    <input name="pos" placeholder="noun" />
+                  </label>
+                  <label>
+                    태그
+                    <input name="tags" placeholder="mindset, feeling" />
+                  </label>
+                </div>
+                <label>
                   예문
-                  <textarea name="example" rows={2} defaultValue={selectedWord.example || ""} />
+                  <textarea name="example" rows={2} placeholder="기억하고 싶은 예문" />
                 </label>
                 <label>
                   메모
-                  <textarea name="memo" rows={2} defaultValue={selectedWord.memo || ""} />
+                  <textarea name="memo" rows={2} placeholder="나만의 연상 메모" />
                 </label>
-                <div className="grid-two">
-                  <label>
-                    태그
-                    <input name="tags" type="text" defaultValue={selectedWord.tags.join(", ")} />
-                  </label>
-                  <label>
-                    사진 교체
-                    <input name="photo" type="file" accept="image/*" />
-                  </label>
-                </div>
-                <div className="inline-actions">
-                  <button className="primary" type="submit">
-                    변경 저장
-                  </button>
-                  <button
-                    className="ghost"
-                    type="button"
-                    onClick={() =>
-                      updateWord({
-                        photo: "",
-                      })
-                    }
-                  >
-                    사진 제거
-                  </button>
-                </div>
-                <button className="danger" type="button" onClick={removeSelectedWord}>
-                  단어 삭제
+                <label className="file-field">
+                  <span>
+                    <Icon name="image" />
+                    사진 추가
+                  </span>
+                  <input name="photo" type="file" accept="image/*" />
+                </label>
+                <button className="primary wide" type="submit">
+                  저장하기
                 </button>
               </form>
-
-              <div className="detail-section">
-                <p className="detail-meta">
-                  {[selectedWord.pos, selectedWord.example, selectedWord.memo]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </p>
-              </div>
-
-              <div className="detail-section">
-                <h3>관계 연결</h3>
-                <form className="relation-form" onSubmit={addRelation}>
-                  <select name="type" defaultValue="related">
-                    {relationTypes.map((relation) => (
-                      <option value={relation.value} key={relation.value}>
-                        {relation.label}
-                      </option>
-                    ))}
-                  </select>
-                  <select name="target" defaultValue="">
-                    <option value="" disabled>
-                      연결할 단어
-                    </option>
-                    {state.words
-                      .filter((word) => word.id !== selectedWord.id)
-                      .map((word) => (
-                        <option value={word.id} key={word.id}>
-                          {word.term}
-                        </option>
-                      ))}
-                  </select>
-                  <input name="label" type="text" placeholder="라벨(선택)" />
-                  <button className="primary" type="submit">
-                    연결
-                  </button>
-                </form>
-              </div>
-
-              <div className="detail-section">
-                <h3>연결된 단어</h3>
-                <div className="relation-list">
-                  {relatedWords.length ? (
-                    relatedWords.map((item) => (
-                      <div className="relation-item" key={item.relation.id}>
-                        <strong>{item.word.term}</strong>
-                        <p>
-                          {relationLabel(item.displayType)}
-                          {item.relation.label ? ` · ${item.relation.label}` : ""}
-                        </p>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="panel-empty">
-                      <strong>연결이 없습니다.</strong>
-                      <span>아래에서 관계를 추가하세요.</span>
+            ) : (
+              selectedWord && (
+                <div key={selectedWord.id}>
+                  <div className="detail-photo">
+                    {renderPhoto(selectedWord.photo, selectedWord.term)}
+                  </div>
+                  <form className="detail-form" onSubmit={saveDetail}>
+                    <label>
+                      단어
+                      <input name="term" defaultValue={selectedWord.term} />
+                    </label>
+                    <label>
+                      뜻
+                      <textarea name="definition" rows={2} defaultValue={selectedWord.definition} />
+                    </label>
+                    <div className="grid-two">
+                      <label>
+                        품사
+                        <input name="pos" defaultValue={selectedWord.pos || ""} />
+                      </label>
+                      <label>
+                        태그
+                        <input name="tags" defaultValue={selectedWord.tags.join(", ")} />
+                      </label>
                     </div>
-                  )}
+                    <label>
+                      예문
+                      <textarea name="example" rows={2} defaultValue={selectedWord.example || ""} />
+                    </label>
+                    <label>
+                      메모
+                      <textarea name="memo" rows={2} defaultValue={selectedWord.memo || ""} />
+                    </label>
+                    <label className="file-field">
+                      <span>
+                        <Icon name="image" />
+                        사진 교체
+                      </span>
+                      <input name="photo" type="file" accept="image/*" />
+                    </label>
+                    {selectedWord.photo && (
+                      <button
+                        className="secondary wide"
+                        type="button"
+                        onClick={() => {
+                          updateWord({ photo: "" });
+                          notify("사진을 삭제했어요");
+                        }}
+                      >
+                        사진 삭제
+                      </button>
+                    )}
+                    <button className="primary wide" type="submit">
+                      변경 저장
+                    </button>
+                  </form>
+                  <div className="detail-section">
+                    <h3>
+                      연결된 단어 <small>{relatedWords.length}</small>
+                    </h3>
+                    {relatedWords.length ? (
+                      <div className="relation-list">
+                        {relatedWords.map((item) => (
+                          <div className="relation-item" key={item.relation.id}>
+                            <button type="button" onClick={() => setSelectedWordId(item.word.id)}>
+                              <span>
+                                <strong>{item.word.term}</strong>
+                                <small>
+                                  {relationLabel(item.displayType)}
+                                  {item.relation.label ? ` · ${item.relation.label}` : ""}
+                                </small>
+                              </span>
+                              <Icon name="chevron" />
+                            </button>
+                            <button
+                              className="relation-delete"
+                              type="button"
+                              onClick={() => {
+                                setState((current) => ({
+                                  ...current,
+                                  updatedAt: new Date().toISOString(),
+                                  relations: current.relations.filter(
+                                    (relation) => relation.id !== item.relation.id,
+                                  ),
+                                }));
+                                notify("관계를 삭제했어요");
+                              }}
+                            >
+                              삭제
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="muted">아직 연결된 단어가 없어요.</p>
+                    )}
+                  </div>
+                  <div className="detail-section">
+                    <h3>새 관계 연결</h3>
+                    <form className="relation-form" onSubmit={addRelation}>
+                      <select name="type" defaultValue="related">
+                        {relationTypes.map((relation) => (
+                          <option value={relation.value} key={relation.value}>
+                            {relation.label}
+                          </option>
+                        ))}
+                      </select>
+                      <select name="target" defaultValue="">
+                        <option value="" disabled>
+                          연결할 단어 선택
+                        </option>
+                        {state.words
+                          .filter((word) => word.id !== selectedWord.id)
+                          .map((word) => (
+                            <option value={word.id} key={word.id}>
+                              {word.term}
+                            </option>
+                          ))}
+                      </select>
+                      <input name="label" placeholder="관계 설명 (선택)" />
+                      <button className="secondary" type="submit">
+                        연결하기
+                      </button>
+                    </form>
+                  </div>
+                  <button
+                    className="delete-button"
+                    type="button"
+                    onClick={() => setDeleteConfirmOpen(true)}
+                  >
+                    단어 삭제
+                  </button>
                 </div>
-              </div>
-            </>
-          ) : null}
-        </div>
-      </div>
-
-      <section className="composer-card">
-        <div className="section-head">
-          <div>
-            <p className="eyebrow">Preview</p>
-            <h2>예약/시트 흐름 샘플</h2>
+              )
+            )}
           </div>
         </div>
-        <div className="detail-section">
-          <p className="detail-meta">
-            {routeProfile.subtitle} {rangeStart} - {rangeEnd}
-          </p>
-        </div>
-        <div className="detail-section">
-          <div className="word-tags">
-            {Object.keys(busyMatrix)
-              .slice(0, 3)
-              .map((date) => (
-                <span className="tag" key={date}>
-                  {date}
-                </span>
-              ))}
+      )}
+      {view === "review" && reviewRevealed && !reviewFinished && (
+        <button className="review-hard-action" type="button" onClick={() => markReviewed("hard")}>
+          어려웠어요
+        </button>
+      )}
+      {deleteConfirmOpen && selectedWord && (
+        <div className="confirm-layer">
+          <div className="confirm-backdrop" onClick={() => setDeleteConfirmOpen(false)} />
+          <div className="confirm-card">
+            <div className="confirm-mark">!</div>
+            <h2>단어를 삭제할까요?</h2>
+            <p>
+              “{selectedWord.term}”와 연결된 관계도
+              <br />
+              함께 삭제됩니다.
+            </p>
+            <div className="confirm-actions">
+              <button
+                className="secondary"
+                type="button"
+                onClick={() => setDeleteConfirmOpen(false)}
+              >
+                취소
+              </button>
+              <button className="danger-solid" type="button" onClick={removeWord}>
+                삭제하기
+              </button>
+            </div>
           </div>
         </div>
-      </section>
-
-      <div className="toast" hidden={!toast}>
-        {toast}
-      </div>
-      <div className="footer-note">
-        <span>Version</span>
-        <strong>{getTossAppVersionSafe() || "local"}</strong>
-      </div>
+      )}
+      {toast && <div className="toast">{toast}</div>}
+      <div className="footer-space" aria-hidden="true" />
     </main>
+  );
+}
+
+function EmptyState({ text }: { text: string }) {
+  return (
+    <div className="empty-state">
+      <strong>{text}</strong>
+      <span>+ 버튼을 눌러 첫 단어를 기록해보세요.</span>
+    </div>
   );
 }

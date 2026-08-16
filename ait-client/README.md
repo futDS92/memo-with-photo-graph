@@ -1,22 +1,28 @@
-# AIT Client
+# photo graph client
 
-React + TypeScript 기반 App in Toss 전환용 클라이언트 스캐폴드입니다.
+사진 기반 단어 기록, 관계 지도, 일일 복습을 제공하는 React 모바일 앱입니다.
 
 ## 실행
 
 ```bash
-cd /Users/kipyo/memo-with-photo-graph/ait-client
 npm install
 npm run dev
 ```
 
-기본적으로 `/api/state`를 `http://127.0.0.1:4180`으로 프록시합니다.
-환경에 따라 `VITE_API_ORIGIN` 또는 `VITE_API_STATE_URL`로 바꿀 수 있습니다.
+개발 API는 `/api/state`로 연결되며 기본 대상은 `http://127.0.0.1:4180`입니다.
 
-## 현재 상태
+## 주요 기능
 
-- 단어장, 맵, 관계, 상세 시트, 추가 폼 포함
-- 로컬 저장과 서버 동기화를 같이 사용
-- Toss 런타임 버전 탐지는 안전한 wrapper로 분리
-- 실제 TDS Mobile 연결은 이후 SDK 확정 후 붙입니다
-- `npm run build`로 생산용 번들을 만들 수 있습니다
+- 사진·뜻·예문·메모를 함께 기록
+- 태그와 전문 검색으로 단어 탐색
+- 관계를 연결하고 그래프로 이동
+- 일일 복습 카드와 진행률
+- IndexedDB 우선 저장 및 localStorage 백업
+- 사진 자동 리사이즈·압축과 API 동기화
+
+## 명령어
+
+```bash
+npm run build
+npm run preview
+```

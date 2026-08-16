@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { extname, join, normalize } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -8,14 +8,6 @@ const rootDir = __dirname;
 const dataDir = join(rootDir, "data");
 const statePath = join(dataDir, "state.json");
 const port = Number(process.env.PORT || 4180);
-
-const mimeTypes = {
-  ".css": "text/css; charset=utf-8",
-  ".html": "text/html; charset=utf-8",
-  ".js": "application/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".svg": "image/svg+xml",
-};
 
 const seedState = {
   words: [
@@ -156,17 +148,6 @@ function sendJson(res, statusCode, body) {
   res.end(JSON.stringify(body));
 }
 
-function sendText(res, statusCode, body, type = "text/plain; charset=utf-8") {
-  res.writeHead(statusCode, { "content-type": type });
-  res.end(body);
-}
-
-function safePath(requestPath) {
-  const decoded = decodeURIComponent(requestPath);
-  const normalized = normalize(decoded).replace(/^(\.\.(\/|\\|$))+/, "");
-  return join(rootDir, normalized);
-}
-
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
@@ -191,23 +172,7 @@ const server = createServer(async (req, res) => {
       return;
     }
 
-    let pathname = url.pathname;
-    if (pathname === "/") pathname = "/index.html";
-    const filePath = safePath(pathname);
-
-    try {
-      const data = await readFile(filePath);
-      const type = mimeTypes[extname(filePath)] || "application/octet-stream";
-      res.writeHead(200, {
-        "content-type": type,
-        "cache-control": "no-store",
-      });
-      res.end(data);
-      return;
-    } catch {
-      const index = await readFile(join(rootDir, "index.html"));
-      sendText(res, 200, index.toString("utf8"), "text/html; charset=utf-8");
-    }
+    sendJson(res, 404, { error: "API only. Run the ait-client workspace for the app." });
   } catch (error) {
     sendJson(res, 500, { error: String(error?.message || error) });
   }
