@@ -142,6 +142,8 @@ export function App() {
   const [activeTag, setActiveTag] = useState(() => loadPersistedTag());
   const [search, setSearch] = useState("");
   const [sheet, setSheet] = useState<"detail" | "add" | null>(null);
+  const [detailEditing, setDetailEditing] = useState(false);
+  const [newPhotoPreview, setNewPhotoPreview] = useState("");
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [toast, setToast] = useState("");
   const [syncStatus, setSyncStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -243,6 +245,7 @@ export function App() {
   };
   const chooseWord = (id: string) => {
     setSelectedWordId(id);
+    setDetailEditing(false);
     setSheet("detail");
   };
   const resetMap = () => {
@@ -318,6 +321,8 @@ export function App() {
       words: [word, ...current.words],
     }));
     setSelectedWordId(word.id);
+    setDetailEditing(false);
+    setNewPhotoPreview("");
     form.reset();
     setSheet("detail");
     notify("단어를 저장했어요");
@@ -340,6 +345,7 @@ export function App() {
         .filter(Boolean),
       photo,
     });
+    setDetailEditing(false);
     notify("변경사항을 저장했어요");
   };
   const addRelation = (event: FormEvent<HTMLFormElement>) => {
@@ -490,7 +496,7 @@ export function App() {
         <section className="content-view">
           <div className="page-title">
             <div>
-              <p className="eyebrow">MY WORDS</p>
+              <p className="eyebrow">나의 단어</p>
               <h1>단어장</h1>
             </div>
             <button
@@ -556,7 +562,7 @@ export function App() {
         <section className="content-view">
           <div className="page-title">
             <div>
-              <p className="eyebrow">EXPLORE</p>
+              <p className="eyebrow">탐색</p>
               <h1>단어 지도</h1>
             </div>
             <span className="map-count">{state.relations.length} connections</span>
@@ -646,7 +652,7 @@ export function App() {
         <section className="content-view review-view">
           <div className="page-title">
             <div>
-              <p className="eyebrow">DAILY REVIEW</p>
+              <p className="eyebrow">오늘의 복습</p>
               <h1>오늘의 복습</h1>
             </div>
             <span className="map-count">
@@ -698,9 +704,12 @@ export function App() {
                 )}
               </div>
               {reviewRevealed ? (
-                <button className="primary wide" type="button" onClick={markReviewed}>
-                  {reviewIndex + 1 >= state.words.length ? "복습 끝내기" : "기억했어요"}
-                </button>
+                <div className="review-actions">
+                  <button className="review-hard" type="button" onClick={() => markReviewed("hard")}>어려웠어요</button>
+                  <button className="primary" type="button" onClick={markReviewed}>
+                    {reviewIndex + 1 >= state.words.length ? "복습 끝내기" : "기억했어요"}
+                  </button>
+                </div>
               ) : (
                 <button
                   className="primary wide"
@@ -761,7 +770,7 @@ export function App() {
             <div className="sheet-handle" />
             <div className="sheet-head">
               <div>
-                <p className="eyebrow">{sheet === "add" ? "NEW WORD" : "WORD DETAIL"}</p>
+                <p className="eyebrow">{sheet === "add" ? "새 단어" : "단어 상세"}</p>
                 <h2>{sheet === "add" ? "새 단어 기록" : selectedWord?.term}</h2>
               </div>
               <button
@@ -772,6 +781,11 @@ export function App() {
               >
                 <Icon name="close" />
               </button>
+              {sheet === "detail" && (
+                <button className="sheet-edit-button" type="button" onClick={() => setDetailEditing((editing) => !editing)}>
+                  {detailEditing ? "보기" : "편집"}
+                </button>
+              )}
             </div>
             {sheet === "add" ? (
               <form className="detail-form" onSubmit={addWord}>
@@ -800,12 +814,13 @@ export function App() {
                   메모
                   <textarea name="memo" rows={2} placeholder="나만의 연상 메모" />
                 </label>
-                <label className="file-field">
+                  {newPhotoPreview && <img className="new-photo-preview" src={newPhotoPreview} alt="추가할 사진 미리보기" />}
+                  <label className="file-field">
                   <span>
                     <Icon name="image" />
                     사진 추가
                   </span>
-                  <input name="photo" type="file" accept="image/*" />
+                    <input name="photo" type="file" accept="image/*" onChange={async (event) => { const file = event.target.files?.[0]; if (file) setNewPhotoPreview(await fileToDataUrl(file)); }} />
                 </label>
                 <button className="primary wide" type="submit">
                   저장하기
@@ -817,41 +832,41 @@ export function App() {
                   <div className="detail-photo">
                     {renderPhoto(selectedWord.photo, selectedWord.term)}
                   </div>
-                  <form className="detail-form" onSubmit={saveDetail}>
+                  <form className={`detail-form ${detailEditing ? "editing" : "view-only"}`} onSubmit={saveDetail}>
                     <label>
                       단어
-                      <input name="term" defaultValue={selectedWord.term} />
+                      <input name="term" defaultValue={selectedWord.term} readOnly={!detailEditing} />
                     </label>
                     <label>
                       뜻
-                      <textarea name="definition" rows={2} defaultValue={selectedWord.definition} />
+                      <textarea name="definition" rows={2} defaultValue={selectedWord.definition} readOnly={!detailEditing} />
                     </label>
                     <div className="grid-two">
                       <label>
                         품사
-                        <input name="pos" defaultValue={selectedWord.pos || ""} />
+                        <input name="pos" defaultValue={selectedWord.pos || ""} readOnly={!detailEditing} />
                       </label>
                       <label>
                         태그
-                        <input name="tags" defaultValue={selectedWord.tags.join(", ")} />
+                        <input name="tags" defaultValue={selectedWord.tags.join(", ")} readOnly={!detailEditing} />
                       </label>
                     </div>
                     <label>
                       예문
-                      <textarea name="example" rows={2} defaultValue={selectedWord.example || ""} />
+                      <textarea name="example" rows={2} defaultValue={selectedWord.example || ""} readOnly={!detailEditing} />
                     </label>
                     <label>
                       메모
-                      <textarea name="memo" rows={2} defaultValue={selectedWord.memo || ""} />
+                      <textarea name="memo" rows={2} defaultValue={selectedWord.memo || ""} readOnly={!detailEditing} />
                     </label>
                     <label className="file-field">
                       <span>
                         <Icon name="image" />
                         사진 교체
                       </span>
-                      <input name="photo" type="file" accept="image/*" />
+                      <input name="photo" type="file" accept="image/*" disabled={!detailEditing} />
                     </label>
-                    {selectedWord.photo && (
+                    {detailEditing && selectedWord.photo && (
                       <button
                         className="secondary wide"
                         type="button"
@@ -863,9 +878,7 @@ export function App() {
                         사진 삭제
                       </button>
                     )}
-                    <button className="primary wide" type="submit">
-                      변경 저장
-                    </button>
+                    {detailEditing && <button className="primary wide" type="submit">변경 저장</button>}
                   </form>
                   <div className="detail-section">
                     <h3>
@@ -948,11 +961,6 @@ export function App() {
             )}
           </div>
         </div>
-      )}
-      {view === "review" && reviewRevealed && !reviewFinished && (
-        <button className="review-hard-action" type="button" onClick={() => markReviewed("hard")}>
-          어려웠어요
-        </button>
       )}
       {deleteConfirmOpen && selectedWord && (
         <div className="confirm-layer">
