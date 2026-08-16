@@ -8,3 +8,4 @@
 .study-nav{grid-template-columns:repeat(6,1fr)}
 .study-nav{padding-left:7px;padding-right:7px}.study-nav button{font-size:9px}.study-nav .study-add{width:42px;height:42px}
 .study-nav{grid-template-columns:repeat(5,1fr)}.study-nav button{font-size:10px}.study-nav .study-add{width:46px;height:46px}
+.photo-card-row{min-height:68px}.photo-card-row>span:nth-child(2){align-self:center}.photo-card-row em{overflow:hidden;color:#a66300;font-size:10px;font-style:normal;text-overflow:ellipsis;white-space:nowrap}.row-photo{width:48px;height:48px;border-radius:11px;object-fit:cover;flex:none}.graph-canvas g{outline:none}.graph-canvas g:focus circle{stroke-width:3;stroke:var(--green)}.graph-canvas image{pointer-events:none}
