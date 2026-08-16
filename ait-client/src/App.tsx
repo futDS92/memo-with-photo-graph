@@ -48,7 +48,7 @@ function Icon({ name }: { name: "home" | "deck" | "plus" | "study" | "chart" | "
   return <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths}</svg>;
 }
 
-function isDue(card: Word) { return !card.reviewDueAt || new Date(card.reviewDueAt).getTime() <= Date.now(); }
+function isDue(card: Word) { if (!card.reviewDueAt) return true; const dueAt = new Date(card.reviewDueAt).getTime(); return !Number.isFinite(dueAt) || dueAt <= Date.now(); }
 function cardSubject(card: Word) { return card.pos || card.tags[0] || "Other"; }
 function cardChapter(card: Word) { return card.example || "Core Concepts"; }
 function isValidImportedState(value: unknown): value is AppState {
@@ -158,7 +158,10 @@ export function App() {
     if (!question || !answer) return;
     if (cards.some((card) => card.term.trim().toLowerCase() === question.toLowerCase())) { notify("A card with the same question already exists"); return; }
     const file = data.get("photo");
-    const photo = file instanceof File && file.size ? await photoUrl(file) : "";
+    let photo = "";
+    if (file instanceof File && file.size) {
+      try { photo = await photoUrl(file); } catch { notify("The image could not be processed"); return; }
+    }
     const choices = String(data.get("choices") || "").split(",").map((choice) => choice.trim()).filter(Boolean);
     const newCard: Word = { id: newId("card"), term: question, definition: answer, pos: String(data.get("subject") || "Other"), example: String(data.get("chapter") || "Core Concepts"), memo: String(data.get("memo") || ""), tags: String(data.get("tags") || "").split(",").map((tag) => tag.trim()).filter(Boolean), photo, cardType: String(data.get("type") || "concept") as Word["cardType"], choices, reviewLevel: 0, correctCount: 0, incorrectCount: 0 };
     setState((current) => ({ ...current, schemaVersion: 2, updatedAt: new Date().toISOString(), words: [newCard, ...current.words] }));

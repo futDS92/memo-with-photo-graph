@@ -69,6 +69,7 @@ const seedState = {
     { id: "rel-4", fromWordId: "word-orchard", toWordId: "word-bloom", type: "related", label: "seasonal image" },
     { id: "rel-5", fromWordId: "word-grove", toWordId: "word-bloom", type: "related", label: "forest feeling" },
   ],
+  schemaVersion: 2,
 };
 
 await mkdir(dataDir, { recursive: true });
@@ -179,7 +180,13 @@ const server = createServer(async (req, res) => {
     if (url.pathname === "/api/state" && (req.method === "PUT" || req.method === "POST")) {
       const chunks = [];
       for await (const chunk of req) chunks.push(chunk);
-      const payload = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+      let payload;
+      try {
+        payload = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+      } catch {
+        sendJson(res, 400, { error: "Request body must be valid JSON" });
+        return;
+      }
       if (!isValidState(payload)) {
         sendJson(res, 400, { error: "Invalid state payload" });
         return;

@@ -6,6 +6,7 @@ const API_STATE_URL = import.meta.env.VITE_API_STATE_URL || "/api/state";
 const DB_NAME = "photo-graph";
 const DB_VERSION = 1;
 const STATE_STORE = "state";
+function cloneSeedState(): AppState { return { ...seedState, words: seedState.words.map((word) => ({ ...word, tags: [...word.tags], choices: word.choices ? [...word.choices] : undefined })), relations: seedState.relations.map((relation) => ({ ...relation })) }; }
 
 function isValidState(value: unknown): value is AppState {
   if (!value || typeof value !== "object") return false;
@@ -55,7 +56,7 @@ async function writeIndexedState(state: AppState) {
 export function loadLocalState(): AppState {
   try {
     const raw = localStorage.getItem(storageKeys.state);
-    if (!raw) return structuredClone(seedState);
+    if (!raw) return cloneSeedState();
     const parsed = JSON.parse(raw);
     if (isValidState(parsed)) {
       return {
@@ -68,7 +69,7 @@ export function loadLocalState(): AppState {
   } catch {
     // fall through to seed
   }
-  return structuredClone(seedState);
+  return cloneSeedState();
 }
 
 export function saveLocalState(state: AppState) {
