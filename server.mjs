@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -7,7 +7,9 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const rootDir = __dirname;
 const dataDir = join(rootDir, "data");
 const statePath = join(dataDir, "state.json");
+const tempStatePath = join(dataDir, "state.json.tmp");
 const port = Number(process.env.PORT || 4180);
+let writeQueue = Promise.resolve();
 
 const seedState = {
   words: [
@@ -139,7 +141,8 @@ async function writeState(state) {
     null,
     2,
   );
-  await writeFile(statePath, payload, "utf8");
+  await writeFile(tempStatePath, payload, "utf8");
+  await rename(tempStatePath, statePath);
 }
 
 function isValidState(state) {
@@ -191,7 +194,8 @@ const server = createServer(async (req, res) => {
         sendJson(res, 400, { error: "Invalid state payload" });
         return;
       }
-      await writeState(payload);
+      writeQueue = writeQueue.catch(() => undefined).then(() => writeState(payload));
+      await writeQueue;
       sendJson(res, 200, { ok: true });
       return;
     }

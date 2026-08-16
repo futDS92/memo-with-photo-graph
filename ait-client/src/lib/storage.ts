@@ -6,6 +6,7 @@ const API_STATE_URL = import.meta.env.VITE_API_STATE_URL || "/api/state";
 const DB_NAME = "photo-graph";
 const DB_VERSION = 1;
 const STATE_STORE = "state";
+const PENDING_SYNC_KEY = "memo-with-photo-graph.pending-sync";
 function cloneSeedState(): AppState { return { ...seedState, words: seedState.words.map((word) => ({ ...word, tags: [...word.tags], choices: word.choices ? [...word.choices] : undefined })), relations: seedState.relations.map((relation) => ({ ...relation })) }; }
 
 function isValidState(value: unknown): value is AppState {
@@ -79,6 +80,14 @@ export function saveLocalState(state: AppState) {
     // ignore storage errors
   }
   void writeIndexedState(state).catch(() => undefined);
+}
+
+function savePendingSync(state: AppState) {
+  try { localStorage.setItem(PENDING_SYNC_KEY, JSON.stringify(state)); } catch { /* local persistence is best effort */ }
+}
+
+function clearPendingSync() {
+  try { localStorage.removeItem(PENDING_SYNC_KEY); } catch { /* ignore storage errors */ }
 }
 
 export async function loadLocalStateAsync(): Promise<AppState> {
@@ -170,16 +179,16 @@ export async function hydrateStateFromServer(localState?: AppState): Promise<App
 }
 
 export async function syncStateToServer(state: AppState): Promise<void> {
-  const response = await fetch(API_STATE_URL, {
-    method: "PUT",
-    headers: {
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      words: state.words,
-      relations: state.relations,
-      updatedAt: state.updatedAt,
-    }),
-  });
-  if (!response.ok) throw new Error(`Sync failed: ${response.status}`);
+  try {
+    const response = await fetch(API_STATE_URL, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ words: state.words, relations: state.relations, updatedAt: state.updatedAt }),
+    });
+    if (!response.ok) throw new Error(`Sync failed: ${response.status}`);
+    clearPendingSync();
+  } catch (error) {
+    savePendingSync(state);
+    throw error;
+  }
 }
