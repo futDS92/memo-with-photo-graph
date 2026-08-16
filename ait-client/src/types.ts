@@ -43,14 +43,14 @@ export type AppState = {
 };
 
 export const relationTypes: Array<{ value: RelationType; label: string }> = [
-  { value: "hypernym", label: "Hypernym" },
-  { value: "hyponym", label: "Hyponym" },
-  { value: "part_of", label: "Part of" },
-  { value: "has_part", label: "Has part" },
-  { value: "synonym", label: "Synonym" },
-  { value: "antonym", label: "Antonym" },
-  { value: "related", label: "Related" },
-  { value: "example", label: "Example" },
+  { value: "hypernym", label: "상위 개념" },
+  { value: "hyponym", label: "하위 개념" },
+  { value: "part_of", label: "부분" },
+  { value: "has_part", label: "구성 요소" },
+  { value: "synonym", label: "유의어" },
+  { value: "antonym", label: "반의어" },
+  { value: "related", label: "관련" },
+  { value: "example", label: "예시" },
 ];
 
 export const storageKeys = {

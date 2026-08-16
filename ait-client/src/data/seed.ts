@@ -7,7 +7,7 @@ function card(id: string, term: string, definition: string, subject: string, cha
     definition,
     pos: subject,
     example: chapter,
-    memo: "Recall the key idea before revealing the answer.",
+    memo: "답을 보기 전에 핵심을 먼저 떠올려 보세요.",
     tags: [subject, chapter, ...tags],
     cardType,
     reviewLevel: 0,
@@ -17,14 +17,14 @@ function card(id: string, term: string, definition: string, subject: string, cha
 }
 
 export const seedWords: Word[] = [
-  card("card-1", "What is the difference between supervised and unsupervised learning?", "Supervised learning learns the relationship between inputs and labeled targets. Unsupervised learning finds structure or patterns without labeled answers.", "Machine Learning", "ML Fundamentals", "concept", ["fundamentals"]),
-  card("card-2", "What is the formula for precision?", "Precision = TP / (TP + FP). It is the proportion of predicted positives that are actually positive.", "Statistics", "Evaluation Metrics", "formula", ["calculation"]),
-  card("card-3", "What is the formula for recall?", "Recall = TP / (TP + FN). It is the proportion of actual positives correctly identified by the model.", "Statistics", "Evaluation Metrics", "formula", ["calculation"]),
-  card("card-4", "Name three ways to handle missing values.", "Deletion, imputation with a representative value such as mean or median, and model-based imputation are common approaches.", "Data Preprocessing", "Data Cleaning", "case", ["preprocessing"]),
-  card("card-5", "Why is feature scaling necessary?", "Scaling puts variables on comparable ranges, improving the stability of distance-based algorithms and gradient descent.", "Data Preprocessing", "Feature Scaling", "concept", ["preprocessing"]),
-  card("card-6", "What is the key condition of Third Normal Form (3NF)?", "A relation must satisfy 2NF and no non-key attribute may depend transitively on the primary key.", "Database", "Data Modeling", "concept", ["normalization"]),
-  card("card-7", "What does a small standard deviation mean?", "The observations are clustered close to the mean, which means the data has low dispersion.", "Statistics", "Descriptive Statistics", "concept", ["fundamentals"]),
-  card("card-8", "What is overfitting?", "Overfitting occurs when a model learns noise in the training data, achieving high training performance but poor generalization.", "Machine Learning", "Model Evaluation", "concept", ["modeling"]),
+  card("card-1", "지도학습과 비지도학습의 차이는?", "지도학습은 입력과 정답의 관계를 학습합니다. 비지도학습은 정답 없이 데이터의 구조와 패턴을 찾습니다.", "머신러닝", "기초", "concept", ["기초"]),
+  card("card-2", "정밀도(Precision) 공식은?", "정밀도 = TP / (TP + FP). 양성으로 예측한 것 중 실제 양성의 비율입니다.", "통계", "평가지표", "formula", ["계산"]),
+  card("card-3", "재현율(Recall) 공식은?", "재현율 = TP / (TP + FN). 실제 양성 중 올바르게 찾은 비율입니다.", "통계", "평가지표", "formula", ["계산"]),
+  card("card-4", "결측값을 처리하는 방법 3가지는?", "삭제, 평균·중앙값 등을 이용한 대치, 모델 기반 대치가 대표적인 방법입니다.", "전처리", "데이터 정제", "case", ["전처리"]),
+  card("card-5", "특성 스케일링이 필요한 이유는?", "변수의 범위를 맞춰 거리 기반 알고리즘과 경사하강법의 안정성을 높이기 위해서입니다.", "전처리", "스케일링", "concept", ["전처리"]),
+  card("card-6", "제3정규형(3NF)의 조건은?", "제2정규형을 만족하고, 기본키가 아닌 속성이 기본키에 이행적으로 종속되지 않아야 합니다.", "데이터베이스", "데이터 모델링", "concept", ["정규화"]),
+  card("card-7", "표준편차가 작다는 의미는?", "관측값이 평균 근처에 모여 있어 데이터의 산포가 작다는 뜻입니다.", "통계", "기술통계", "concept", ["기초"]),
+  card("card-8", "과적합(Overfitting)이란?", "학습 데이터의 잡음까지 외워 학습 성능은 높지만 새로운 데이터의 일반화 성능이 낮은 상태입니다.", "머신러닝", "모델 평가", "concept", ["모델링"]),
 ];
 
 export const seedRelations: Relation[] = [];

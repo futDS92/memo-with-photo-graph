@@ -64,6 +64,112 @@ function isValidImportedState(value: unknown): value is AppState {
   return candidate.relations.every((relation) => Boolean(relation && typeof relation.id === "string" && !relationIds.has(relation.id) && typeof relation.fromWordId === "string" && typeof relation.toWordId === "string" && ids.has(relation.fromWordId) && ids.has(relation.toWordId) && relationIds.add(relation.id)));
 }
 
+const koreanUi: Record<string, string> = {
+  Home: "홈",
+  Study: "학습",
+  Map: "맵",
+  All: "전체",
+  Other: "기타",
+  concept: "개념",
+  case: "사례",
+  "multiple-choice": "객관식",
+  "related": "관련",
+  "part of": "부분",
+  "has part": "구성",
+  "hypernym": "상위",
+  "hyponym": "하위",
+  "synonym": "유의어",
+  "antonym": "반의어",
+  "example": "예시",
+  "study deck": "스터디 덱",
+  "Turn your syllabus into cards": "시험 내용을 카드로",
+  Import: "가져오기",
+  Export: "내보내기",
+  Saving: "저장 중",
+  "Saved on device": "기기에 저장됨",
+  Saved: "저장됨",
+  "Today’s study": "오늘의 공부",
+  "Review today.": "오늘 복습하고",
+  "Remember more.": "더 오래 기억해요.",
+  "Due today": "오늘 복습",
+  "Start studying": "공부 시작",
+  "Total cards": "전체 카드",
+  Mistakes: "오답",
+  Connections: "연결",
+  Subjects: "과목",
+  "Where do you want to start?": "어디부터 시작할까요?",
+  "View all": "전체 보기",
+  "MY DECKS": "내 카드",
+  Cards: "카드",
+  "Search questions or concepts": "질문·개념 검색",
+  "No cards found": "카드가 없어요",
+  "Try another search or subject.": "검색어나 과목을 바꿔 보세요.",
+  "Today’s review": "오늘 복습",
+  "Mistake review": "오답 복습",
+  Answer: "정답",
+  Formula: "공식",
+  Cloze: "빈칸",
+  "Choose an answer": "정답 선택",
+  Question: "문제",
+  "Explain the idea in your own words.": "내 말로 설명해 보세요.",
+  "Recall the answer before revealing the card.": "정답을 떠올린 뒤 확인하세요.",
+  "Choose the best answer.": "가장 알맞은 답을 고르세요.",
+  "Reveal answer": "정답 보기",
+  "Still difficult": "아직 어려워요",
+  "I remembered": "기억했어요",
+  "No cards are due": "복습할 카드가 없어요",
+  "Add a card or come back when the next review is scheduled.": "카드를 추가하거나 다음 복습일에 다시 오세요.",
+  REVIEW: "복습",
+  "Cards that need another pass": "다시 볼 카드",
+  "Start review": "복습 시작",
+  "KNOWLEDGE MAP": "개념 지도",
+  links: "연결",
+  "Connect concepts to see how your syllabus fits together.": "개념을 연결해 전체 흐름을 확인하세요.",
+  "From card": "출발 카드",
+  "To card": "도착 카드",
+  Connect: "연결하기",
+  Unknown: "알 수 없음",
+  "Remove connection": "연결 삭제",
+  "NEW CARD": "새 카드",
+  "Create a study card": "학습 카드 만들기",
+  "Front · question": "앞면 · 문제",
+  "Back · answer": "뒷면 · 정답",
+  Subject: "과목",
+  Chapter: "단원",
+  Type: "유형",
+  Tags: "태그",
+  "Choices · comma separated": "보기 · 쉼표로 구분",
+  "Memory note": "암기 메모",
+  "Save card": "카드 저장",
+  "Card details": "카드 상세",
+  Front: "앞면",
+  Back: "뒷면",
+  Correct: "정답",
+  Level: "레벨",
+  "Study this card": "이 카드 공부",
+  "Card visual": "카드 이미지",
+  "Study session complete": "학습을 완료했어요",
+  "Card added": "카드를 추가했어요",
+  "Deck exported": "덱을 내보냈어요",
+  "Deck imported": "덱을 가져왔어요",
+  "Could not import this deck": "덱을 가져오지 못했어요",
+  "Not quite — try again": "아직 아니에요. 다시 골라 보세요.",
+  "Choose two different cards": "서로 다른 카드를 고르세요",
+  "That connection already exists": "이미 연결된 카드예요",
+  "Connection added": "연결했어요",
+};
+
+function localizeSeedCards(state: AppState): AppState {
+  const seedById = new Map(seedState.words.map((card) => [card.id, card]));
+  return {
+    ...state,
+    words: state.words.map((card) => {
+      const seed = seedById.get(card.id);
+      return seed ? { ...card, term: seed.term, definition: seed.definition, pos: seed.pos, example: seed.example, memo: seed.memo, tags: seed.tags, cardType: seed.cardType } : card;
+    }),
+  };
+}
+
 export function App() {
   const [state, setState] = useState<AppState>(() => seedState);
   const [view, setView] = useState<View>("home");
@@ -109,13 +215,37 @@ export function App() {
       if (!mounted) return null;
       return hydrateStateFromServer(local).then((remote) => {
         if (!mounted) return null;
-        setState(remote || local);
+        setState(localizeSeedCards(remote || local));
         stateReady.current = true;
         return null;
       });
     });
     return () => { mounted = false; };
   }, []);
+  useEffect(() => {
+    const root = document.querySelector(".study-app");
+    if (!root) return;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const nodes: Text[] = [];
+    let node: Node | null;
+    while ((node = walker.nextNode())) nodes.push(node as Text);
+    nodes.forEach((text) => {
+      const value = text.nodeValue?.trim() || "";
+      if (koreanUi[value]) text.nodeValue = text.nodeValue?.replace(value, koreanUi[value]) || koreanUi[value];
+      else if (/^\d+ cards$/.test(value)) text.nodeValue = value.replace("cards", "장");
+      else if (/^\d+ mistakes/.test(value)) text.nodeValue = value.replace("mistakes", "회 오답");
+      else if (/^\d+ links$/.test(value)) text.nodeValue = value.replace("links", "개 연결");
+      else if (/^Correct \d+/.test(value)) text.nodeValue = value.replace("Correct", "정답");
+      else if (/^Mistakes \d+/.test(value)) text.nodeValue = value.replace("Mistakes", "오답");
+      else if (/^Level \d+/.test(value)) text.nodeValue = value.replace("Level", "레벨");
+    });
+    root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>("input, textarea").forEach((field) => {
+      if (koreanUi[field.placeholder]) field.placeholder = koreanUi[field.placeholder];
+    });
+    root.querySelectorAll<HTMLElement>("[aria-label]").forEach((element) => {
+      if (element.getAttribute("aria-label") === "Remove connection") element.setAttribute("aria-label", koreanUi["Remove connection"]);
+    });
+  }, [view, state.words.length, state.relations.length, sheet, revealed]);
   useEffect(() => {
     if (!stateReady.current) return;
     const version = ++syncVersion.current;
