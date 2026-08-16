@@ -10,6 +10,10 @@ export type Word = {
   reviewDueAt?: string;
   reviewLevel?: number;
   lastReviewedAt?: string;
+  correctCount?: number;
+  incorrectCount?: number;
+  isBookmarked?: boolean;
+  cardType?: "concept" | "definition" | "formula" | "case";
 };
 
 export type RelationType =
@@ -34,6 +38,7 @@ export type AppState = {
   words: Word[];
   relations: Relation[];
   updatedAt: string;
+  schemaVersion?: number;
 };
 
 export const relationTypes: Array<{ value: RelationType; label: string }> = [

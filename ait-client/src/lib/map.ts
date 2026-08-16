@@ -47,9 +47,9 @@ export function buildMapLayout(centerWord: Word, relatedWords: RelatedWord[]) {
   const edges: LayoutEdge[] = [];
 
   const ringConfigs = [
-    { types: ["hypernym"], radius: 205, count: 2, spread: 110 },
-    { types: ["hyponym", "part_of", "has_part"], radius: 245, count: 3, spread: 150 },
-    { types: ["related", "synonym", "antonym", "example"], radius: 290, count: 4, spread: 185 },
+    { types: ["hypernym"], radius: 205, spread: 240 },
+    { types: ["hyponym", "part_of", "has_part"], radius: 265, spread: 280 },
+    { types: ["related", "synonym", "antonym", "example"], radius: 325, spread: 320 },
   ] as const;
 
   const grouped = ringConfigs.map((ring) =>
@@ -58,9 +58,10 @@ export function buildMapLayout(centerWord: Word, relatedWords: RelatedWord[]) {
 
   ringConfigs.forEach((ring, ringIndex) => {
     const items = grouped[ringIndex];
-    const count = Math.min(items.length, ring.count);
-    items.slice(0, count).forEach((item, index) => {
-      const angle = (-90 + ((index + 1) / (count + 1)) * ring.spread) * (Math.PI / 180);
+    const count = items.length;
+    items.forEach((item, index) => {
+      const position = count === 1 ? 0.5 : index / (count - 1);
+      const angle = (-90 - ring.spread / 2 + position * ring.spread) * (Math.PI / 180);
       const x = center.x + Math.cos(angle + ringIndex * 0.2) * ring.radius;
       const y = center.y + Math.sin(angle + ringIndex * 0.12) * ring.radius;
       nodes.push({ word: item.word, x, y, center: false });

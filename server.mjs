@@ -119,7 +119,7 @@ async function getState() {
     existing &&
     Array.isArray(existing.words) &&
     Array.isArray(existing.relations) &&
-    (existing.words.length || existing.relations.length)
+      existing.schemaVersion === 2 && (existing.words.length || existing.relations.length)
   ) {
     return existing;
   }
@@ -133,11 +133,23 @@ async function writeState(state) {
       words: Array.isArray(state.words) ? state.words : [],
       relations: Array.isArray(state.relations) ? state.relations : [],
       updatedAt: new Date().toISOString(),
+      schemaVersion: 2,
     },
     null,
     2,
   );
   await writeFile(statePath, payload, "utf8");
+}
+
+function isValidState(state) {
+  if (!state || !Array.isArray(state.words) || !Array.isArray(state.relations)) return false;
+  const ids = new Set();
+  for (const word of state.words) {
+    if (!word || typeof word.id !== "string" || typeof word.term !== "string" || typeof word.definition !== "string" || !Array.isArray(word.tags)) return false;
+    if (ids.has(word.id)) return false;
+    ids.add(word.id);
+  }
+  return state.relations.every((relation) => relation && typeof relation.id === "string" && typeof relation.fromWordId === "string" && typeof relation.toWordId === "string" && ids.has(relation.fromWordId) && ids.has(relation.toWordId));
 }
 
 function sendJson(res, statusCode, body) {
@@ -167,6 +179,10 @@ const server = createServer(async (req, res) => {
       const chunks = [];
       for await (const chunk of req) chunks.push(chunk);
       const payload = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+      if (!isValidState(payload)) {
+        sendJson(res, 400, { error: "Invalid state payload" });
+        return;
+      }
       await writeState(payload);
       sendJson(res, 200, { ok: true });
       return;

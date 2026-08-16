@@ -45,11 +45,12 @@ export function loadLocalState(): AppState {
     const raw = localStorage.getItem(storageKeys.state);
     if (!raw) return structuredClone(seedState);
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed?.words) && Array.isArray(parsed?.relations)) {
+    if (parsed?.schemaVersion === 2 && Array.isArray(parsed?.words) && Array.isArray(parsed?.relations)) {
       return {
         words: parsed.words,
         relations: parsed.relations,
         updatedAt: parsed.updatedAt || new Date().toISOString(),
+        schemaVersion: 2,
       };
     }
   } catch {
@@ -68,15 +69,16 @@ export function saveLocalState(state: AppState) {
 }
 
 export async function loadLocalStateAsync(): Promise<AppState> {
+  const localState = loadLocalState();
   try {
     const indexedState = await readIndexedState();
-    if (indexedState && Array.isArray(indexedState.words) && Array.isArray(indexedState.relations)) {
-      return indexedState;
+    if (indexedState?.schemaVersion === 2 && Array.isArray(indexedState.words) && Array.isArray(indexedState.relations)) {
+      return indexedState.updatedAt >= localState.updatedAt ? indexedState : localState;
     }
   } catch {
     // fall back to the synchronous cache
   }
-  return loadLocalState();
+  return localState;
 }
 
 export function loadPersistedView(): string {
@@ -132,11 +134,12 @@ export async function hydrateStateFromServer(localState?: AppState): Promise<App
     const response = await fetch(API_STATE_URL, { cache: "no-store" });
     if (!response.ok) return null;
     const data = (await response.json()) as AppState;
-    if (!Array.isArray(data.words) || !Array.isArray(data.relations)) return null;
+    if (data.schemaVersion !== 2 || !Array.isArray(data.words) || !Array.isArray(data.relations)) return localState || null;
     const remoteState = {
       words: data.words,
       relations: data.relations,
       updatedAt: data.updatedAt || new Date().toISOString(),
+      schemaVersion: 2,
     };
     if (localState && localState.updatedAt > remoteState.updatedAt) return localState;
     return remoteState;
@@ -146,7 +149,7 @@ export async function hydrateStateFromServer(localState?: AppState): Promise<App
 }
 
 export async function syncStateToServer(state: AppState): Promise<void> {
-  await fetch(API_STATE_URL, {
+  const response = await fetch(API_STATE_URL, {
     method: "PUT",
     headers: {
       "content-type": "application/json",
@@ -157,4 +160,5 @@ export async function syncStateToServer(state: AppState): Promise<void> {
       updatedAt: state.updatedAt,
     }),
   });
+  if (!response.ok) throw new Error(`Sync failed: ${response.status}`);
 }

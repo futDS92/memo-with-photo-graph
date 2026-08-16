@@ -1,6 +1,6 @@
 # photo graph
 
-사진과 단어를 연결하고, 관계를 따라 탐색하며, 매일 복습하는 모바일 단어 앱입니다.
+시험 개념을 카드로 만들고, 플래시카드처럼 반복 학습하는 모바일 공부 앱입니다.
 
 ## 실행
 
@@ -17,10 +17,10 @@ npm run start:api
 
 ## 제품 흐름
 
-- 홈: 새 단어 기록, 최근 단어, 오늘의 복습
-- 단어장: 검색·태그 필터·상세 편집
-- 지도: 단어 사이의 관계를 시각적으로 탐색
-- 복습: 사진을 단서로 뜻을 떠올리고 기억 여부를 기록
+- 홈: 오늘 복습할 카드, 오답 카드, 과목별 진행률
+- 카드 모음: 과목·챕터별 검색과 카드 관리
+- 학습: 질문을 보고 답을 떠올린 뒤 정답·난이도 기록
+- 오답 노트: 익숙하지 않은 카드만 반복 학습
 - 저장: IndexedDB 우선 저장, localStorage 백업, API 동기화
 - 사진: 업로드 시 자동 리사이즈·압축
 
@@ -28,7 +28,7 @@ npm run start:api
 
 프런트엔드는 `ait-client/` 하나만 사용합니다. React + TypeScript + Vite로 빌드하며 GitHub Pages 배포도 이 디렉터리를 기준으로 합니다.
 
-- `ait-client/src/App.tsx`: 제품 화면과 사용자 흐름
+- `ait-client/src/App.tsx`: 카드 학습 화면과 사용자 흐름
 - `ait-client/src/lib/storage.ts`: 로컬 저장 및 API 동기화
 - `ait-client/src/data/seed.ts`: 첫 실행 샘플 데이터
 - `server.mjs`: 개발용 상태 API
