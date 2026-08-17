@@ -434,6 +434,7 @@ export function App() {
   const [graphPreviewId, setGraphPreviewId] = useState<string | null>(null);
   const [graphHistory, setGraphHistory] = useState<string[]>(["all"]);
   const [graphHistoryIndex, setGraphHistoryIndex] = useState(0);
+  const [graphMotion, setGraphMotion] = useState(false);
   const [graphZoom, setGraphZoom] = useState(1);
   const [graphPan, setGraphPan] = useState({ x: 0, y: 0 });
   const [graphNodeOffsets, setGraphNodeOffsets] = useState<
@@ -739,6 +740,12 @@ export function App() {
     setGraphPan(savedProject.mapPan || { x: 0, y: 0 });
     setGraphZoom(savedProject.mapZoom || 1);
   }, [currentProject.id]);
+  useEffect(() => {
+    if (view !== "graph") return;
+    setGraphMotion(true);
+    const timer = window.setTimeout(() => setGraphMotion(false), 2600);
+    return () => window.clearTimeout(timer);
+  }, [view, currentProject.id, projectRelations.length]);
   useEffect(() => {
     if (!stateReady.current || view !== "graph") return;
     const timer = window.setTimeout(() => {
@@ -1714,7 +1721,13 @@ export function App() {
           </select>
         </label>
         <div className="data-actions">
-          <span className={`sync-dot ${syncError ? "error" : syncing ? "saving" : ""}`} aria-label={syncing ? "저장 중" : syncError ? "기기에 저장됨" : "저장됨"} />
+          <span
+            className={`sync-status ${syncError ? "error" : syncing ? "saving" : ""}`}
+            role="status"
+            aria-live="polite"
+          >
+            {syncing ? "저장 중" : syncError ? "오프라인 저장" : "저장됨"}
+          </span>
           <button className="data-button settings-button" type="button" onClick={() => setView("settings")} aria-label="설정">
             ⚙
           </button>
@@ -2106,7 +2119,7 @@ export function App() {
               role="img"
               aria-label="Knowledge graph"
             >
-              {projectRelations.map((relation) => {
+              {projectRelations.map((relation, relationIndex) => {
                 const from = graphDisplayPositions.get(relation.fromWordId);
                 const to = graphDisplayPositions.get(relation.toWordId);
                 if (!from || !to) return null;
@@ -2116,8 +2129,9 @@ export function App() {
                     graphNeighbors.has(relation.toWordId));
                 return (
                   <line
-                    className={active ? "graph-edge active" : "graph-edge dim"}
+                    className={`${active ? "graph-edge active" : "graph-edge dim"} ${graphMotion ? "graph-edge-live" : ""}`}
                     key={relation.id}
+                    style={{ animationDelay: `${relationIndex * 80}ms` }}
                     x1={from.x}
                     y1={from.y}
                     x2={to.x}
@@ -2180,23 +2194,28 @@ export function App() {
                       }
                     }}
                   >
-                    <circle className="graph-node-halo" r={focused ? 15 : 10} />
-                    <circle className="graph-node-dot" r={focused ? 8 : 5} />
-                    {card.photo && (
-                      <image
-                        href={card.photo}
-                        x={focused ? -6 : -4}
-                        y={focused ? -6 : -4}
-                        width={focused ? 12 : 8}
-                        height={focused ? 12 : 8}
-                        preserveAspectRatio="xMidYMid slice"
-                        clipPath={`circle(${focused ? 6 : 4}px at ${focused ? 6 : 4}px ${focused ? 6 : 4}px)`}
-                      />
-                    )}
-                    <text className="graph-node-label" y="21">
-                      {card.term.slice(0, 16)}
-                      {card.term.length > 16 ? "…" : ""}
-                    </text>
+                    <g
+                      className={graphMotion ? "graph-node-motion" : undefined}
+                      style={{ animationDelay: `${(graphCards.indexOf(card) % 8) * 70}ms` }}
+                    >
+                      <circle className="graph-node-halo" r={focused ? 15 : 10} />
+                      <circle className="graph-node-dot" r={focused ? 8 : 5} />
+                      {card.photo && (
+                        <image
+                          href={card.photo}
+                          x={focused ? -6 : -4}
+                          y={focused ? -6 : -4}
+                          width={focused ? 12 : 8}
+                          height={focused ? 12 : 8}
+                          preserveAspectRatio="xMidYMid slice"
+                          clipPath={`circle(${focused ? 6 : 4}px at ${focused ? 6 : 4}px ${focused ? 6 : 4}px)`}
+                        />
+                      )}
+                      <text className="graph-node-label" y="21">
+                        {card.term.slice(0, 16)}
+                        {card.term.length > 16 ? "…" : ""}
+                      </text>
+                    </g>
                   </g>
                 );
               })}
