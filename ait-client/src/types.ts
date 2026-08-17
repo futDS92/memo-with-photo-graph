@@ -23,6 +23,16 @@ export type Project = {
   name: string;
   description?: string;
   color?: string;
+  mapPositions?: Record<string, { x: number; y: number }>;
+  mapPan?: { x: number; y: number };
+  mapZoom?: number;
+};
+
+export type ReviewEvent = {
+  id: string;
+  cardId: string;
+  date: string;
+  correct: boolean;
 };
 
 export type RelationType =
@@ -47,6 +57,7 @@ export type AppState = {
   projects?: Project[];
   words: Word[];
   relations: Relation[];
+  reviewLog?: ReviewEvent[];
   updatedAt: string;
   schemaVersion?: number;
 };

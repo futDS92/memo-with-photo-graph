@@ -22,10 +22,15 @@ database.exec(`
   PRAGMA journal_mode = WAL;
   CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE, password_hash TEXT, is_anonymous INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires_at TEXT NOT NULL, FOREIGN KEY(user_id) REFERENCES users(id));
-  CREATE TABLE IF NOT EXISTS user_states (user_id TEXT PRIMARY KEY, projects_json TEXT NOT NULL DEFAULT '[]', words_json TEXT NOT NULL, relations_json TEXT NOT NULL, updated_at TEXT NOT NULL, FOREIGN KEY(user_id) REFERENCES users(id));
+  CREATE TABLE IF NOT EXISTS user_states (user_id TEXT PRIMARY KEY, projects_json TEXT NOT NULL DEFAULT '[]', words_json TEXT NOT NULL, relations_json TEXT NOT NULL, review_log_json TEXT NOT NULL DEFAULT '[]', updated_at TEXT NOT NULL, FOREIGN KEY(user_id) REFERENCES users(id));
 `);
 try {
   database.exec("ALTER TABLE user_states ADD COLUMN projects_json TEXT NOT NULL DEFAULT '[]'");
+} catch {
+  /* Existing database already has the column. */
+}
+try {
+  database.exec("ALTER TABLE user_states ADD COLUMN review_log_json TEXT NOT NULL DEFAULT '[]'");
 } catch {
   /* Existing database already has the column. */
 }
@@ -231,7 +236,7 @@ function getUserFromRequest(req, res, createAnonymous = true) {
 async function getUserState(userId) {
   const row = database
     .prepare(
-      "SELECT projects_json, words_json, relations_json, updated_at FROM user_states WHERE user_id = ?",
+      "SELECT projects_json, words_json, relations_json, review_log_json, updated_at FROM user_states WHERE user_id = ?",
     )
     .get(userId);
   if (row)
@@ -239,6 +244,7 @@ async function getUserState(userId) {
       projects: JSON.parse(row.projects_json || "[]"),
       words: JSON.parse(row.words_json),
       relations: JSON.parse(row.relations_json),
+      reviewLog: JSON.parse(row.review_log_json || "[]"),
       updatedAt: row.updated_at,
       schemaVersion: 2,
     };
@@ -256,13 +262,14 @@ function writeUserState(userId, state) {
   const updatedAt = new Date().toISOString();
   database
     .prepare(
-      "INSERT INTO user_states (user_id, projects_json, words_json, relations_json, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET projects_json = excluded.projects_json, words_json = excluded.words_json, relations_json = excluded.relations_json, updated_at = excluded.updated_at",
+      "INSERT INTO user_states (user_id, projects_json, words_json, relations_json, review_log_json, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET projects_json = excluded.projects_json, words_json = excluded.words_json, relations_json = excluded.relations_json, review_log_json = excluded.review_log_json, updated_at = excluded.updated_at",
     )
     .run(
       userId,
       JSON.stringify(state.projects || []),
       JSON.stringify(state.words),
       JSON.stringify(state.relations),
+      JSON.stringify(Array.isArray(state.reviewLog) ? state.reviewLog.slice(-500) : []),
       updatedAt,
     );
   return { ...state, updatedAt, schemaVersion: 2 };

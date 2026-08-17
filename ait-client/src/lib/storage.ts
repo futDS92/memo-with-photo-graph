@@ -52,6 +52,17 @@ function isValidState(value: unknown): value is AppState {
   );
 }
 
+function normalizeState(candidate: AppState): AppState {
+  return {
+    projects: candidate.projects,
+    words: candidate.words,
+    relations: candidate.relations,
+    reviewLog: Array.isArray(candidate.reviewLog) ? candidate.reviewLog : [],
+    updatedAt: candidate.updatedAt || new Date().toISOString(),
+    schemaVersion: 2,
+  };
+}
+
 function openStateDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -94,13 +105,7 @@ export function loadLocalState(): AppState {
     if (!raw) return cloneSeedState();
     const parsed = JSON.parse(raw);
     if (isValidState(parsed)) {
-      return {
-        projects: parsed.projects,
-        words: parsed.words,
-        relations: parsed.relations,
-        updatedAt: parsed.updatedAt || new Date().toISOString(),
-        schemaVersion: 2,
-      };
+      return normalizeState(parsed);
     }
   } catch {
     // fall through to seed
@@ -133,6 +138,16 @@ function clearPendingSync() {
   }
 }
 
+function loadPendingSync(): AppState | null {
+  try {
+    const raw = localStorage.getItem(PENDING_SYNC_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return isValidState(parsed) ? normalizeState(parsed) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function loadLocalStateAsync(): Promise<AppState> {
   let parsedLocal: unknown = null;
   try {
@@ -143,15 +158,20 @@ export async function loadLocalStateAsync(): Promise<AppState> {
   }
   const hasValidLocal = isValidState(parsedLocal);
   const localState = hasValidLocal ? loadLocalState() : null;
+  const pendingState = loadPendingSync();
+  const newestLocal = [localState, pendingState]
+    .filter((item): item is AppState => Boolean(item))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] || null;
   try {
     const indexedState = await readIndexedState();
     if (isValidState(indexedState)) {
-      if (!localState || indexedState.updatedAt >= localState.updatedAt) return indexedState;
+      if (!newestLocal || indexedState.updatedAt >= newestLocal.updatedAt)
+        return normalizeState(indexedState);
     }
   } catch {
     // fall back to the synchronous cache
   }
-  return localState || loadLocalState();
+  return newestLocal || loadLocalState();
 }
 
 export function loadPersistedView(): string {
@@ -208,13 +228,7 @@ export async function hydrateStateFromServer(localState?: AppState): Promise<App
     if (!response.ok) return null;
     const data = (await response.json()) as AppState;
     if (!isValidState(data)) return localState || null;
-    const remoteState = {
-      projects: data.projects,
-      words: data.words,
-      relations: data.relations,
-      updatedAt: data.updatedAt || new Date().toISOString(),
-      schemaVersion: 2,
-    };
+    const remoteState = normalizeState(data);
     if (localState && localState.updatedAt > remoteState.updatedAt) return localState;
     return remoteState;
   } catch {
@@ -222,20 +236,45 @@ export async function hydrateStateFromServer(localState?: AppState): Promise<App
   }
 }
 
+function mergeStates(local: AppState, remote: AppState): AppState {
+  const words = new Map(remote.words.map((word) => [word.id, word]));
+  local.words.forEach((word) => words.set(word.id, word));
+  const projects = new Map((remote.projects || []).map((project) => [project.id, project]));
+  (local.projects || []).forEach((project) => projects.set(project.id, project));
+  const relations = new Map(remote.relations.map((relation) => [relation.id, relation]));
+  local.relations.forEach((relation) => relations.set(relation.id, relation));
+  const reviewLog = new Map((remote.reviewLog || []).map((event) => [event.id, event]));
+  (local.reviewLog || []).forEach((event) => reviewLog.set(event.id, event));
+  return {
+    projects: [...projects.values()],
+    words: [...words.values()],
+    relations: [...relations.values()],
+    reviewLog: [...reviewLog.values()].slice(-500),
+    updatedAt: new Date().toISOString(),
+    schemaVersion: 2,
+  };
+}
+
+async function putState(state: AppState): Promise<void> {
+  const response = await fetch(API_STATE_URL, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(state),
+  });
+  if (response.status === 409) {
+    const body = (await response.json()) as { state?: AppState };
+    if (body.state && isValidState(body.state)) {
+      await putState(mergeStates(state, normalizeState(body.state)));
+      return;
+    }
+  }
+  if (!response.ok) throw new Error(`Sync failed: ${response.status}`);
+}
+
 export async function syncStateToServer(state: AppState): Promise<void> {
   try {
-    const response = await fetch(API_STATE_URL, {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({
-        projects: state.projects,
-        words: state.words,
-        relations: state.relations,
-        updatedAt: state.updatedAt,
-      }),
-    });
-    if (!response.ok) throw new Error(`Sync failed: ${response.status}`);
+    await putState(state);
     clearPendingSync();
   } catch (error) {
     savePendingSync(state);

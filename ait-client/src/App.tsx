@@ -77,7 +77,7 @@ function newId(prefix: string) {
   return `${prefix}-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
 }
 function nextDue(level: number, hard: boolean) {
-  const days = hard ? 1 : [1, 3, 7, 14, 30][Math.min(level, 4)];
+  const days = hard ? 1 : [1, 2, 4, 7, 14, 30, 60][Math.min(level, 6)];
   return new Date(Date.now() + days * 86400000).toISOString();
 }
 function photoUrl(file: File): Promise<string> {
@@ -86,12 +86,18 @@ function photoUrl(file: File): Promise<string> {
     reader.onload = () => {
       const image = new Image();
       image.onload = () => {
-        const ratio = Math.min(1, 1600 / Math.max(image.width, image.height));
+        const ratio = Math.min(1, 1200 / Math.max(image.width, image.height));
         const canvas = document.createElement("canvas");
         canvas.width = Math.max(1, Math.round(image.width * ratio));
         canvas.height = Math.max(1, Math.round(image.height * ratio));
         canvas.getContext("2d")?.drawImage(image, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL("image/jpeg", 0.82));
+        let quality = 0.78;
+        let output = canvas.toDataURL("image/jpeg", quality);
+        while (output.length > 1_000_000 && quality > 0.5) {
+          quality -= 0.06;
+          output = canvas.toDataURL("image/jpeg", quality);
+        }
+        resolve(output);
       };
       image.onerror = reject;
       image.src = String(reader.result);
@@ -380,6 +386,9 @@ function normalizeWorkspace(state: AppState): AppState {
       projectId:
         word.projectId && projectIds.has(word.projectId) ? word.projectId : fallbackProjectId,
     })),
+    reviewLog: Array.isArray(state.reviewLog)
+      ? state.reviewLog.filter((event) => projectIds.has(state.words.find((word) => word.id === event.cardId)?.projectId || fallbackProjectId))
+      : [],
     schemaVersion: 2,
   };
 }
@@ -419,6 +428,10 @@ export function App() {
   const [studyIndex, setStudyIndex] = useState(0);
   const [revealed, setRevealed] = useState(false);
   const [toast, setToast] = useState("");
+  const [confirmRequest, setConfirmRequest] = useState<{
+    message: string;
+    action: () => void;
+  } | null>(null);
   const [sheet, setSheet] = useState<"add" | "detail" | "edit" | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -434,6 +447,7 @@ export function App() {
   const [relationType, setRelationType] = useState<RelationType>("related");
   const [clozeInput, setClozeInput] = useState("");
   const [graphSubject, setGraphSubject] = useState("All");
+  const [graphSearch, setGraphSearch] = useState("");
   const [graphFocusId, setGraphFocusId] = useState("all");
   const [graphPreviewId, setGraphPreviewId] = useState<string | null>(null);
   const [graphHistory, setGraphHistory] = useState<string[]>(["all"]);
@@ -496,7 +510,12 @@ export function App() {
   );
   const graphCards = useMemo(() => {
     const base = cards.filter(
-      (card) => graphSubject === "All" || cardSubject(card) === graphSubject,
+      (card) =>
+        (graphSubject === "All" || cardSubject(card) === graphSubject) &&
+        [card.term, card.definition, ...card.tags]
+          .join(" ")
+          .toLowerCase()
+          .includes(graphSearch.trim().toLowerCase()),
     );
     if (graphFocusId === "all") return base.slice(0, 12);
     const connected = new Set([graphFocusId]);
@@ -505,7 +524,7 @@ export function App() {
       if (relation.toWordId === graphFocusId) connected.add(relation.fromWordId);
     });
     return base.filter((card) => connected.has(card.id)).slice(0, 12);
-  }, [cards, graphFocusId, graphSubject, projectRelations]);
+  }, [cards, graphFocusId, graphSearch, graphSubject, projectRelations]);
   const graphPositions = useMemo(
     () => graphLayout(graphCards, projectRelations),
     [graphCards, projectRelations],
@@ -532,6 +551,21 @@ export function App() {
   const totalCorrect = cards.reduce((sum, card) => sum + (card.correctCount || 0), 0);
   const accuracy = totalAttempts ? Math.round((totalCorrect / totalAttempts) * 100) : 0;
   const mastered = cards.filter((card) => (card.reviewLevel || 0) >= 3).length;
+  const reviewLog = (state.reviewLog || []).filter((event) =>
+    cards.some((card) => card.id === event.cardId),
+  );
+  const todayReviews = reviewLog.filter((event) => event.date === today());
+  const studyDays = new Set(reviewLog.map((event) => event.date));
+  let streak = 0;
+  const streakDate = new Date();
+  while (studyDays.has(streakDate.toISOString().slice(0, 10))) {
+    streak += 1;
+    streakDate.setDate(streakDate.getDate() - 1);
+  }
+  const weakCards = [...cards]
+    .filter((card) => (card.incorrectCount || 0) > 0)
+    .sort((a, b) => (b.incorrectCount || 0) - (a.incorrectCount || 0))
+    .slice(0, 3);
   const currentCard = cards.find((card) => card.id === studyIds[studyIndex]);
   const graphPreview = cards.find((card) => card.id === graphPreviewId);
 
@@ -540,6 +574,8 @@ export function App() {
     if (toastTimer.current) window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToast(""), 1800);
   };
+  const askConfirm = (message: string, action: () => void) =>
+    setConfirmRequest({ message, action });
   const focusGraphNode = (id: string) => {
     setGraphFocusId(id);
     setGraphPreviewId(id === "all" ? null : id);
@@ -563,7 +599,11 @@ export function App() {
         if (!mounted) return null;
         const hydrated = normalizeWorkspace(localizeSeedCards(remote || local));
         setState(hydrated);
-        setCurrentProjectId(hydrated.projects?.[0]?.id || defaultProject.id);
+        const firstProject = hydrated.projects?.[0];
+        setCurrentProjectId(firstProject?.id || defaultProject.id);
+        setGraphNodeOffsets(firstProject?.mapPositions || {});
+        setGraphPan(firstProject?.mapPan || { x: 0, y: 0 });
+        setGraphZoom(firstProject?.mapZoom || 1);
         const savedSession = readStudySession();
         if (savedSession) {
           const availableIds = savedSession.ids.filter((id) =>
@@ -628,6 +668,27 @@ export function App() {
     document.documentElement.style.setProperty("--graph-pan-y", `${graphPan.y}px`);
   }, [graphPan, graphZoom]);
   useEffect(() => {
+    const savedProject = currentProject;
+    setGraphNodeOffsets(savedProject.mapPositions || {});
+    setGraphPan(savedProject.mapPan || { x: 0, y: 0 });
+    setGraphZoom(savedProject.mapZoom || 1);
+  }, [currentProject.id]);
+  useEffect(() => {
+    if (!stateReady.current || view !== "graph") return;
+    const timer = window.setTimeout(() => {
+      setState((current) => ({
+        ...current,
+        updatedAt: new Date().toISOString(),
+        projects: (current.projects || projects).map((project) =>
+          project.id === currentProject.id
+            ? { ...project, mapPositions: graphNodeOffsets, mapPan: graphPan, mapZoom: graphZoom }
+            : project,
+        ),
+      }));
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [currentProject.id, graphNodeOffsets, graphPan, graphZoom, view]);
+  useEffect(() => {
     const canvas = document.querySelector<HTMLElement>(".graph-canvas");
     if (!canvas || view !== "graph") return;
     let dragStart = { x: 0, y: 0, panX: 0, panY: 0 };
@@ -639,6 +700,7 @@ export function App() {
         : 0;
     };
     const onDown = (event: PointerEvent) => {
+      if ((event.target as HTMLElement).closest("button, input, select, a")) return;
       canvas.setPointerCapture(event.pointerId);
       graphPointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
       if (graphPointers.current.size === 1)
@@ -750,6 +812,10 @@ export function App() {
             }
           : card,
       ),
+      reviewLog: [
+        ...(current.reviewLog || []),
+        { id: newId("review"), cardId: currentCard.id, date: today(), correct: !hard },
+      ].slice(-500),
     }));
     if (studyIndex + 1 >= studyIds.length) {
       setView("home");
@@ -774,7 +840,7 @@ export function App() {
       notify("A card with the same question already exists");
       return;
     }
-    const file = data.get("photo");
+    const file = data.get("photo-library") || data.get("photo-camera");
     let photo = "";
     if (file instanceof File && file.size) {
       try {
@@ -877,7 +943,7 @@ export function App() {
       notify("같은 문제가 이미 있어요");
       return;
     }
-    const file = data.get("photo");
+    const file = data.get("photo-library") || data.get("photo-camera");
     let photo = card.photo;
     if (file instanceof File && file.size) {
       try {
@@ -1083,11 +1149,11 @@ export function App() {
                 <div className="photo-source-row">
                   <label>
                     보관함에서 선택
-                    <input name="photo" type="file" accept="image/*" />
+                    <input name="photo-library" type="file" accept="image/*" />
                   </label>
                   <label>
                     카메라로 촬영
-                    <input name="photo" type="file" accept="image/*" capture="environment" />
+                    <input name="photo-camera" type="file" accept="image/*" capture="environment" />
                   </label>
                 </div>
               </div>
@@ -1146,6 +1212,14 @@ export function App() {
               <strong>{mistakeCards.length}</strong>
               <small>오답 카드</small>
             </div>
+            <div>
+              <strong>{todayReviews.length}</strong>
+              <small>오늘 풀이</small>
+            </div>
+            <div>
+              <strong>{streak}일</strong>
+              <small>학습 연속</small>
+            </div>
           </div>
           <div className="stats-subjects">
             <strong>과목별 카드</strong>
@@ -1158,6 +1232,26 @@ export function App() {
                 </small>
               </div>
             ))}
+          </div>
+          <div className="stats-subjects stats-weak-list">
+            <strong>다시 볼 개념</strong>
+            {weakCards.length ? (
+              weakCards.map((card) => (
+                <button
+                  type="button"
+                  key={card.id}
+                  onClick={() => {
+                    setSelectedId(card.id);
+                    setSheet("detail");
+                  }}
+                >
+                  <span>{card.term}</span>
+                  <small>{card.incorrectCount || 0}회 오답 · 카드 열기</small>
+                </button>
+              ))
+            ) : (
+              <small>아직 오답 기록이 없어요.</small>
+            )}
           </div>
         </section>
       )}
@@ -1224,8 +1318,9 @@ export function App() {
                       className="settings-remove"
                       type="button"
                       onClick={() => {
-                        if (window.confirm("이 프로젝트와 카드·맵을 삭제할까요?"))
-                          removeProject(project.id);
+                        askConfirm("이 프로젝트와 카드·맵을 삭제할까요?", () =>
+                          removeProject(project.id),
+                        );
                       }}
                       aria-label={`${project.name} 프로젝트 삭제`}
                     >
@@ -1335,6 +1430,13 @@ export function App() {
                 </option>
               ))}
           </select>
+          <input
+            className="graph-search"
+            value={graphSearch}
+            onChange={(event) => setGraphSearch(event.target.value)}
+            placeholder="맵에서 개념 검색"
+            aria-label="맵에서 개념 검색"
+          />
           <svg className="graph-markers" aria-hidden="true">
             <defs>
               <marker
@@ -2033,11 +2135,11 @@ export function App() {
                 <div className="photo-source-row">
                   <label>
                     보관함에서 선택
-                    <input name="photo" type="file" accept="image/*" />
+                    <input name="photo-library" type="file" accept="image/*" />
                   </label>
                   <label>
                     카메라로 촬영
-                    <input name="photo" type="file" accept="image/*" capture="environment" />
+                    <input name="photo-camera" type="file" accept="image/*" capture="environment" />
                   </label>
                 </div>
               </div>
@@ -2148,7 +2250,7 @@ export function App() {
                 className="danger-action"
                 type="button"
                 onClick={() => {
-                  if (window.confirm("이 카드를 삭제할까요?")) deleteCard(selected.id);
+                  askConfirm("이 카드를 삭제할까요?", () => deleteCard(selected.id));
                 }}
               >
                 삭제
@@ -2172,6 +2274,30 @@ export function App() {
         </div>
       )}
       {toast && <div className="study-toast">{toast}</div>}
+      {confirmRequest && (
+        <div className="confirm-dialog-backdrop" role="presentation">
+          <div className="confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title">
+            <strong id="confirm-title">확인</strong>
+            <p>{confirmRequest.message}</p>
+            <div>
+              <button type="button" onClick={() => setConfirmRequest(null)}>
+                취소
+              </button>
+              <button
+                className="confirm-danger"
+                type="button"
+                onClick={() => {
+                  const action = confirmRequest.action;
+                  setConfirmRequest(null);
+                  action();
+                }}
+              >
+                삭제
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
