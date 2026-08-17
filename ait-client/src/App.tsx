@@ -619,7 +619,7 @@ export function App() {
       localStorage.removeItem("graphflash.account.email");
       setAccountEmail("");
       setAccountId("");
-      setState(normalizeWorkspace(null));
+      setState(normalizeWorkspace(seedState));
       setView("home");
       notify("계정과 학습 데이터를 삭제했어요");
     } catch {
