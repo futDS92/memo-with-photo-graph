@@ -8,5 +8,8 @@
     "preview": "npm --prefix ait-client run preview",
     "start:api": "node server.mjs",
     "format": "prettier --write ait-client/src ait-client/index.html server.mjs"
+  },
+  "dependencies": {
+    "google-auth-library": "^11.0.2"
   }
 }

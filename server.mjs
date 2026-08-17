@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+import { OAuth2Client } from "google-auth-library";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const rootDir = __dirname;
@@ -13,6 +14,8 @@ const statePath = join(dataDir, "state.json");
 const tempStatePath = join(dataDir, "state.json.tmp");
 const databasePath = join(dataDir, "study-deck.sqlite");
 const port = Number(process.env.PORT || 4180);
+const googleClientId = process.env.GOOGLE_CLIENT_ID || "";
+const googleClient = googleClientId ? new OAuth2Client(googleClientId) : null;
 let writeQueue = Promise.resolve();
 let legacyState;
 
@@ -20,8 +23,8 @@ mkdirSync(dataDir, { recursive: true });
 const database = new DatabaseSync(databasePath);
 database.exec(`
   PRAGMA journal_mode = WAL;
-  CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE, password_hash TEXT, is_anonymous INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL);
-  CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires_at TEXT NOT NULL, FOREIGN KEY(user_id) REFERENCES users(id));
+  CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE, google_sub TEXT UNIQUE, password_hash TEXT, is_anonymous INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id TEXT NOT NULL, device_id TEXT NOT NULL DEFAULT '', expires_at TEXT NOT NULL, FOREIGN KEY(user_id) REFERENCES users(id));
   CREATE TABLE IF NOT EXISTS user_states (user_id TEXT PRIMARY KEY, projects_json TEXT NOT NULL DEFAULT '[]', words_json TEXT NOT NULL, relations_json TEXT NOT NULL, review_log_json TEXT NOT NULL DEFAULT '[]', updated_at TEXT NOT NULL, FOREIGN KEY(user_id) REFERENCES users(id));
   CREATE TABLE IF NOT EXISTS ranking_profiles (user_id TEXT PRIMARY KEY, nickname TEXT NOT NULL, opted_in INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL, FOREIGN KEY(user_id) REFERENCES users(id));
 `);
@@ -32,6 +35,16 @@ try {
 }
 try {
   database.exec("ALTER TABLE user_states ADD COLUMN review_log_json TEXT NOT NULL DEFAULT '[]'");
+} catch {
+  /* Existing database already has the column. */
+}
+try {
+  database.exec("ALTER TABLE sessions ADD COLUMN device_id TEXT NOT NULL DEFAULT ''");
+} catch {
+  /* Existing database already has the column. */
+}
+try {
+  database.exec("ALTER TABLE users ADD COLUMN google_sub TEXT");
 } catch {
   /* Existing database already has the column. */
 }
@@ -198,12 +211,17 @@ function setSessionCookie(res, token, maxAge = 60 * 60 * 24 * 30) {
   );
 }
 
-function createSession(userId) {
+function requestDeviceId(req) {
+  const value = req.headers["x-graphflash-device"];
+  return typeof value === "string" && value.length >= 8 && value.length <= 160 ? value : "";
+}
+
+function createSession(userId, deviceId) {
   const token = randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + 30 * 86400000).toISOString();
   database
-    .prepare("INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)")
-    .run(token, userId, expiresAt);
+    .prepare("INSERT INTO sessions (token, user_id, device_id, expires_at) VALUES (?, ?, ?, ?)")
+    .run(token, userId, deviceId, expiresAt);
   return token;
 }
 
@@ -217,19 +235,58 @@ function createAnonymousUser() {
   return id;
 }
 
+async function authenticateGoogle(req, res, credential) {
+  if (!googleClient) {
+    sendJson(res, 503, { error: "Google authentication is not configured" });
+    return;
+  }
+  const ticket = await googleClient.verifyIdToken({ idToken: credential, audience: googleClientId });
+  const payload = ticket.getPayload();
+  if (!payload?.sub || !payload.email || payload.email_verified !== true) {
+    sendJson(res, 401, { error: "Google account verification failed" });
+    return;
+  }
+  const deviceId = requestDeviceId(req);
+  const existingSession = getUserFromRequest(req, res, false);
+  let user = database.prepare("SELECT id, email, is_anonymous FROM users WHERE google_sub = ?").get(payload.sub);
+  let migratedAnonymous = false;
+  if (!user && existingSession?.is_anonymous) {
+    database
+      .prepare("UPDATE users SET email = ?, google_sub = ?, is_anonymous = 0 WHERE id = ?")
+      .run(payload.email, payload.sub, existingSession.id);
+    user = { id: existingSession.id, email: payload.email, is_anonymous: 0 };
+    migratedAnonymous = true;
+  }
+  if (!user) {
+    const userId = `user-${randomBytes(12).toString("hex")}`;
+    database
+      .prepare("INSERT INTO users (id, email, google_sub, password_hash, is_anonymous, created_at) VALUES (?, ?, ?, NULL, 0, ?)")
+      .run(userId, payload.email, payload.sub, new Date().toISOString());
+    user = { id: userId, email: payload.email, is_anonymous: 0 };
+  }
+  const token = createSession(user.id, deviceId);
+  setSessionCookie(res, token);
+  sendJson(res, 200, { user: { id: user.id, email: user.email, isAnonymous: false }, migratedAnonymous });
+}
+
 function getUserFromRequest(req, res, createAnonymous = true) {
   const token = parseCookies(req).study_session;
+  const deviceId = requestDeviceId(req);
   if (token) {
     const row = database
       .prepare(
-        "SELECT users.id, users.email, users.is_anonymous FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token = ? AND sessions.expires_at > ?",
+        "SELECT users.id, users.email, users.is_anonymous, sessions.device_id FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token = ? AND sessions.expires_at > ? AND (sessions.device_id = ? OR sessions.device_id = '')",
       )
-      .get(token, new Date().toISOString());
-    if (row) return row;
+      .get(token, new Date().toISOString(), deviceId);
+    if (row) {
+      if (!row.device_id && deviceId)
+        database.prepare("UPDATE sessions SET device_id = ? WHERE token = ?").run(deviceId, token);
+      return row;
+    }
   }
   if (!createAnonymous) return null;
   const userId = createAnonymousUser();
-  const newToken = createSession(userId);
+  const newToken = createSession(userId, deviceId);
   setSessionCookie(res, newToken);
   return { id: userId, email: null, is_anonymous: 1 };
 }
@@ -402,7 +459,7 @@ function sendJson(res, statusCode, body, origin = "") {
     "cache-control": "no-store",
     ...(allowedOrigin ? { "access-control-allow-origin": allowedOrigin } : {}),
     "access-control-allow-credentials": "true",
-    "access-control-allow-headers": "content-type",
+    "access-control-allow-headers": "content-type, x-graphflash-device",
     "access-control-allow-methods": "GET,POST,PUT,OPTIONS",
   });
   res.end(JSON.stringify(body));
@@ -426,7 +483,7 @@ const server = createServer(async (req, res) => {
           ? {
               "access-control-allow-origin": allowedOrigin,
               "access-control-allow-credentials": "true",
-              "access-control-allow-headers": "content-type",
+              "access-control-allow-headers": "content-type, x-graphflash-device",
               "access-control-allow-methods": "GET,POST,PUT,OPTIONS",
             }
           : undefined,
@@ -467,6 +524,22 @@ const server = createServer(async (req, res) => {
         .prepare("INSERT INTO ranking_profiles (user_id, nickname, opted_in, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET nickname = excluded.nickname, opted_in = excluded.opted_in, updated_at = excluded.updated_at")
         .run(user.id, nickname, payload.optedIn ? 1 : 0, new Date().toISOString());
       sendJson(res, 200, await getRanking(user.id, payload.period || "week"));
+      return;
+    }
+
+    if (url.pathname === "/api/auth/google" && req.method === "POST") {
+      let payload;
+      try {
+        payload = await readRequestJson(req);
+      } catch {
+        sendJson(res, 400, { error: "Request body must be valid JSON" });
+        return;
+      }
+      if (typeof payload.credential !== "string" || !payload.credential) {
+        sendJson(res, 400, { error: "Google credential is required" });
+        return;
+      }
+      await authenticateGoogle(req, res, payload.credential);
       return;
     }
 

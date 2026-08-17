@@ -3,6 +3,7 @@ import { TossAds } from "@apps-in-toss/web-framework";
 import { defaultProject, seedState } from "./data/seed";
 import {
   hydrateStateFromServer,
+  authenticateWithGoogle,
   loadLocalStateAsync,
   loadRanking,
   saveLocalState,
@@ -32,6 +33,7 @@ import { AIT_VERSION } from "./generated/build-version";
 type View = "home" | "decks" | "study" | "mistakes" | "graph" | "stats" | "settings";
 type StudyMode = "due" | "mistakes";
 const TOSS_AD_GROUP_ID = import.meta.env.VITE_TOSS_AD_GROUP_ID || "";
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 let tossAdsInitialization: Promise<void> | null = null;
 
 function initializeTossAds() {
@@ -88,6 +90,54 @@ function BannerAd() {
       {status !== "shown" && <span>{status === "loading" ? "광고 준비 중" : "광고 없음"}</span>}
     </section>
   );
+}
+
+type GoogleWindow = Window & {
+  google?: {
+    accounts: {
+      id: {
+        initialize: (config: { client_id: string; callback: (response: { credential: string }) => void }) => void;
+        renderButton: (element: HTMLElement, options: { theme: string; size: string; width: number }) => void;
+      };
+    };
+  };
+};
+
+function GoogleSignIn({ onSignedIn }: { onSignedIn: (email: string) => void }) {
+  const buttonRef = useRef<HTMLDivElement>(null);
+  const onSignedInRef = useRef(onSignedIn);
+  const [status, setStatus] = useState<"ready" | "disabled" | "error">("ready");
+  onSignedInRef.current = onSignedIn;
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID) {
+      setStatus("disabled");
+      return;
+    }
+    let timer: number | undefined;
+    const render = () => {
+      const google = (window as GoogleWindow).google;
+      if (!google || !buttonRef.current) return false;
+      google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: async ({ credential }) => {
+          try {
+            const result = await authenticateWithGoogle(credential);
+            onSignedInRef.current(result.user.email);
+          } catch {
+            setStatus("error");
+          }
+        },
+      });
+      buttonRef.current.replaceChildren();
+      google.accounts.id.renderButton(buttonRef.current, { theme: "outline", size: "large", width: 280 });
+      return true;
+    };
+    if (!render()) timer = window.setInterval(() => render() && timer && window.clearInterval(timer), 250);
+    return () => timer && window.clearInterval(timer);
+  }, []);
+  if (status === "disabled") return <p className="account-disabled">Google Client ID 설정 후 사용할 수 있어요.</p>;
+  if (status === "error") return <p className="account-error">Google 로그인에 실패했어요. 다시 시도해주세요.</p>;
+  return <div className="google-signin" ref={buttonRef} aria-label="Google로 로그인" />;
 }
 
 function today() {
@@ -352,6 +402,9 @@ export function App() {
   const [rankingLoading, setRankingLoading] = useState(false);
   const [rankingError, setRankingError] = useState(false);
   const [rankingPeriod, setRankingPeriod] = useState<"week" | "month" | "all">("week");
+  const [accountEmail, setAccountEmail] = useState(
+    () => localStorage.getItem("graphflash.account.email") || "",
+  );
   const [showOnboarding, setShowOnboarding] = useState(
     () => localStorage.getItem("graphflash.onboarding") !== "complete",
   );
@@ -499,6 +552,14 @@ export function App() {
   const finishOnboarding = () => {
     localStorage.setItem("graphflash.onboarding", "complete");
     setShowOnboarding(false);
+  };
+  const handleGoogleSignedIn = (email: string) => {
+    localStorage.setItem("graphflash.account.email", email);
+    setAccountEmail(email);
+    void hydrateStateFromServer().then((remote) => {
+      if (remote) setState(normalizeWorkspace(localizeSeedCards(remote)));
+    });
+    notify("Google 계정으로 연결했어요");
   };
   const updateRankingProfile = async () => {
     const nickname = rankingNickname.trim();
@@ -1420,6 +1481,23 @@ export function App() {
                   )}
                 </div>
               ))}
+            </div>
+          </div>
+          <div className="settings-section account-section">
+            <div className="settings-section-head">
+              <div>
+                <strong>계정 연결</strong>
+                <small>{accountEmail ? `${accountEmail}로 연결됨` : "계정별로 카드와 학습 기록을 분리해요."}</small>
+              </div>
+            </div>
+            <GoogleSignIn onSignedIn={handleGoogleSignedIn} />
+            <div className="apple-signin-placeholder">
+              <span className="apple-mark">●</span>
+              <span>
+                <strong>Apple로 로그인</strong>
+                <small>Apple Developer 설정 후 활성화됩니다.</small>
+              </span>
+              <span className="account-badge">준비 중</span>
             </div>
           </div>
           <div className="settings-section">

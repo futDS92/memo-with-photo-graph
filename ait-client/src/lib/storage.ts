@@ -7,6 +7,25 @@ const DB_NAME = "photo-graph";
 const DB_VERSION = 1;
 const STATE_STORE = "state";
 const PENDING_SYNC_KEY = "memo-with-photo-graph.pending-sync";
+const DEVICE_ID_KEY = "graphflash.device-id";
+
+function getDeviceId() {
+  try {
+    const saved = localStorage.getItem(DEVICE_ID_KEY);
+    if (saved) return saved;
+    const created =
+      globalThis.crypto?.randomUUID?.() ||
+      `device-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    localStorage.setItem(DEVICE_ID_KEY, created);
+    return created;
+  } catch {
+    return "ephemeral-device";
+  }
+}
+
+function deviceHeaders(headers?: HeadersInit) {
+  return { ...(headers || {}), "x-graphflash-device": getDeviceId() };
+}
 function cloneSeedState(): AppState {
   return {
     ...seedState,
@@ -224,7 +243,11 @@ export function savePersistedTag(tag: string) {
 
 export async function hydrateStateFromServer(localState?: AppState): Promise<AppState | null> {
   try {
-    const response = await fetch(API_STATE_URL, { cache: "no-store", credentials: "include" });
+    const response = await fetch(API_STATE_URL, {
+      cache: "no-store",
+      credentials: "include",
+      headers: deviceHeaders(),
+    });
     if (!response.ok) return null;
     const data = (await response.json()) as AppState;
     if (!isValidState(data)) return localState || null;
@@ -258,7 +281,7 @@ function mergeStates(local: AppState, remote: AppState): AppState {
 async function putState(state: AppState): Promise<void> {
   const response = await fetch(API_STATE_URL, {
     method: "PUT",
-    headers: { "content-type": "application/json" },
+    headers: deviceHeaders({ "content-type": "application/json" }),
     credentials: "include",
     body: JSON.stringify(state),
   });
@@ -286,6 +309,7 @@ export async function loadRanking(period: "week" | "month" | "all" = "week"): Pr
   const response = await fetch(`${API_STATE_URL.replace(/\/api\/state$/, "")}/api/ranking?period=${period}`, {
     cache: "no-store",
     credentials: "include",
+    headers: deviceHeaders(),
   });
   if (!response.ok) throw new Error(`Ranking failed: ${response.status}`);
   return (await response.json()) as RankingResponse;
@@ -298,10 +322,39 @@ export async function saveRankingProfile(
 ): Promise<RankingResponse> {
   const response = await fetch(`${API_STATE_URL.replace(/\/api\/state$/, "")}/api/ranking`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: deviceHeaders({ "content-type": "application/json" }),
     credentials: "include",
     body: JSON.stringify({ nickname, optedIn, period }),
   });
   if (!response.ok) throw new Error(`Ranking profile failed: ${response.status}`);
   return (await response.json()) as RankingResponse;
+}
+
+export async function authenticateWithGoogle(
+  credential: string,
+): Promise<{ user: { email: string }; migratedAnonymous: boolean }> {
+  const response = await fetch(`${API_STATE_URL.replace(/\/api\/state$/, "")}/api/auth/google`, {
+    method: "POST",
+    headers: deviceHeaders({ "content-type": "application/json" }),
+    credentials: "include",
+    body: JSON.stringify({ credential }),
+  });
+  if (!response.ok) throw new Error(`Google authentication failed: ${response.status}`);
+  return (await response.json()) as { email: string };
+}
+
+export async function clearLocalState(): Promise<void> {
+  try {
+    localStorage.removeItem(storageKeys.state);
+    localStorage.removeItem(PENDING_SYNC_KEY);
+  } catch {
+    // Continue with IndexedDB cleanup when localStorage is unavailable.
+  }
+  if (!("indexedDB" in window)) return;
+  const db = await openStateDb();
+  await new Promise<void>((resolve, reject) => {
+    const request = db.transaction(STATE_STORE, "readwrite").objectStore(STATE_STORE).delete("current");
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
 }
