@@ -2069,44 +2069,6 @@ button {
   font-size: 10px;
   font-weight: 700;
 }
-.apple-signin-placeholder {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  min-height: 48px;
-  padding: 9px 10px;
-  border: 1px solid var(--line);
-  border-radius: 11px;
-  background: #fafafa;
-}
-.apple-mark {
-  display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  color: #fff;
-  background: #111;
-  font-size: 10px;
-}
-.apple-signin-placeholder > span:nth-child(2) {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-}
-.apple-signin-placeholder strong {
-  font-size: 11px;
-}
-.apple-signin-placeholder small {
-  color: var(--muted);
-  font-size: 9px;
-}
-.account-badge {
-  margin-left: auto;
-  color: var(--muted);
-  font-size: 9px;
-  white-space: nowrap;
-}
 .subject-create {
   display: flex;
   gap: 7px;

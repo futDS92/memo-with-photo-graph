@@ -5,6 +5,7 @@ import {
   hydrateStateFromServer,
   authenticateWithGoogle,
   clearLocalState,
+  loadCurrentAccount,
   loadLocalStateAsync,
   loadRanking,
   logoutFromAccount,
@@ -105,7 +106,15 @@ type GoogleWindow = Window & {
   };
 };
 
-function GoogleSignIn({ onSignedIn }: { onSignedIn: (email: string, migratedAnonymous: boolean) => void }) {
+function GoogleSignIn({
+  onAuthStarting,
+  onSignedIn,
+  onAuthFinished,
+}: {
+  onAuthStarting: () => void;
+  onSignedIn: (email: string, migratedAnonymous: boolean) => void;
+  onAuthFinished: () => void;
+}) {
   const buttonRef = useRef<HTMLDivElement>(null);
   const onSignedInRef = useRef(onSignedIn);
   const [status, setStatus] = useState<"ready" | "disabled" | "error">("ready");
@@ -122,11 +131,14 @@ function GoogleSignIn({ onSignedIn }: { onSignedIn: (email: string, migratedAnon
       google.accounts.id.initialize({
         client_id: GOOGLE_CLIENT_ID,
         callback: async ({ credential }) => {
+          onAuthStarting();
           try {
             const result = await authenticateWithGoogle(credential);
-            onSignedInRef.current(result.user.email, result.migratedAnonymous);
+            await onSignedInRef.current(result.user.email, result.migratedAnonymous);
           } catch {
             setStatus("error");
+          } finally {
+            onAuthFinished();
           }
         },
       });
@@ -439,6 +451,7 @@ export function App() {
   const stateReady = useRef(false);
   const syncVersion = useRef(0);
   const syncQueue = useRef(Promise.resolve());
+  const accountTransitioning = useRef(false);
   const toastTimer = useRef<number | null>(null);
 
   const projects = state.projects?.length ? state.projects : [defaultProject];
@@ -563,6 +576,14 @@ export function App() {
     if (remote) setState(normalizeWorkspace(localizeSeedCards(remote)));
     notify("Google 계정으로 연결했어요");
   };
+  const beginAccountTransition = () => {
+    accountTransitioning.current = true;
+    syncVersion.current += 1;
+    setSyncing(false);
+  };
+  const finishAccountTransition = () => {
+    accountTransitioning.current = false;
+  };
   const signOutAccount = async () => {
     try {
       await logoutFromAccount();
@@ -597,6 +618,18 @@ export function App() {
     }
   };
 
+  useEffect(() => {
+    loadCurrentAccount().then((account) => {
+      if (!account) return;
+      if (account.isAnonymous || !account.email) {
+        localStorage.removeItem("graphflash.account.email");
+        setAccountEmail("");
+      } else {
+        localStorage.setItem("graphflash.account.email", account.email);
+        setAccountEmail(account.email);
+      }
+    });
+  }, []);
   useEffect(() => {
     if (view !== "stats") return;
     setRankingLoading(true);
@@ -733,7 +766,8 @@ export function App() {
         : 0;
     };
     const onDown = (event: PointerEvent) => {
-      if ((event.target as HTMLElement).closest("button, input, select, a")) return;
+      const target = event.target as Element | null;
+      if (target?.closest("button, input, select, a, .graph-node")) return;
       canvas.setPointerCapture(event.pointerId);
       graphPointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
       if (graphPointers.current.size === 1)
@@ -781,7 +815,7 @@ export function App() {
     return () => window.removeEventListener("online", retry);
   }, []);
   useEffect(() => {
-    if (!stateReady.current) return;
+    if (!stateReady.current || accountTransitioning.current) return;
     const version = ++syncVersion.current;
     setSyncing(true);
     saveLocalState(state);
@@ -791,6 +825,7 @@ export function App() {
         .then(async () => {
           if (version !== syncVersion.current) return;
           try {
+            if (accountTransitioning.current) return;
             await syncStateToServer(state);
             if (version === syncVersion.current) {
               setSyncing(false);
@@ -1504,20 +1539,16 @@ export function App() {
                 <small>{accountEmail ? `${accountEmail}로 연결됨` : "계정별로 카드와 학습 기록을 분리해요."}</small>
               </div>
             </div>
-            <GoogleSignIn onSignedIn={handleGoogleSignedIn} />
+            <GoogleSignIn
+              onAuthStarting={beginAccountTransition}
+              onSignedIn={handleGoogleSignedIn}
+              onAuthFinished={finishAccountTransition}
+            />
             {accountEmail && (
               <button className="account-signout" type="button" onClick={() => askConfirm("이 기기에서 계정을 로그아웃할까요?", signOutAccount)}>
                 로그아웃
               </button>
             )}
-            <div className="apple-signin-placeholder">
-              <span className="apple-mark">●</span>
-              <span>
-                <strong>Apple로 로그인</strong>
-                <small>Apple Developer 설정 후 활성화됩니다.</small>
-              </span>
-              <span className="account-badge">준비 중</span>
-            </div>
           </div>
           <div className="settings-section">
             <div className="settings-section-head">

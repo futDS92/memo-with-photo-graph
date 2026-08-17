@@ -556,6 +556,12 @@ function isRateLimited(req) {
   const address = req.socket.remoteAddress || "unknown";
   const key = `${address}:${req.url?.split("?")[0] || "/"}`;
   const now = Date.now();
+  if (requestBuckets.size > 10_000) {
+    for (const [bucketKey, bucket] of requestBuckets) {
+      if (now - bucket.startedAt > 120_000) requestBuckets.delete(bucketKey);
+    }
+    if (requestBuckets.size > 10_000) requestBuckets.clear();
+  }
   const bucket = requestBuckets.get(key) || { startedAt: now, count: 0 };
   if (now - bucket.startedAt > 60_000) {
     bucket.startedAt = now;

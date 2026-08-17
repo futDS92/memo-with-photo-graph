@@ -3,6 +3,7 @@ import { seedState } from "../data/seed";
 import { storageKeys } from "../types";
 
 const API_STATE_URL = import.meta.env.VITE_API_STATE_URL || "/api/state";
+const API_BASE_URL = API_STATE_URL.replace(/\/api\/state$/, "");
 const DB_NAME = "photo-graph";
 const DB_VERSION = 1;
 const STATE_STORE = "state";
@@ -259,6 +260,30 @@ export async function hydrateStateFromServer(localState?: AppState): Promise<App
   }
 }
 
+export async function loadCurrentAccount(): Promise<{
+  email: string | null;
+  isAnonymous: boolean;
+} | null> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/me`, {
+      cache: "no-store",
+      credentials: "include",
+      headers: deviceHeaders(),
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as {
+      user?: { email?: string | null; isAnonymous?: boolean };
+    };
+    if (!data.user) return null;
+    return {
+      email: data.user.email || null,
+      isAnonymous: Boolean(data.user.isAnonymous),
+    };
+  } catch {
+    return null;
+  }
+}
+
 function mergeStates(local: AppState, remote: AppState): AppState {
   const words = new Map(remote.words.map((word) => [word.id, word]));
   local.words.forEach((word) => words.set(word.id, word));
@@ -306,7 +331,7 @@ export async function syncStateToServer(state: AppState): Promise<void> {
 }
 
 export async function loadRanking(period: "week" | "month" | "all" = "week"): Promise<RankingResponse> {
-  const response = await fetch(`${API_STATE_URL.replace(/\/api\/state$/, "")}/api/ranking?period=${period}`, {
+    const response = await fetch(`${API_BASE_URL}/api/ranking?period=${period}`, {
     cache: "no-store",
     credentials: "include",
     headers: deviceHeaders(),
@@ -320,7 +345,7 @@ export async function saveRankingProfile(
   optedIn: boolean,
   period: "week" | "month" | "all" = "week",
 ): Promise<RankingResponse> {
-  const response = await fetch(`${API_STATE_URL.replace(/\/api\/state$/, "")}/api/ranking`, {
+  const response = await fetch(`${API_BASE_URL}/api/ranking`, {
     method: "POST",
     headers: deviceHeaders({ "content-type": "application/json" }),
     credentials: "include",
@@ -333,7 +358,7 @@ export async function saveRankingProfile(
 export async function authenticateWithGoogle(
   credential: string,
 ): Promise<{ user: { email: string }; migratedAnonymous: boolean }> {
-  const response = await fetch(`${API_STATE_URL.replace(/\/api\/state$/, "")}/api/auth/google`, {
+  const response = await fetch(`${API_BASE_URL}/api/auth/google`, {
     method: "POST",
     headers: deviceHeaders({ "content-type": "application/json" }),
     credentials: "include",
@@ -360,7 +385,7 @@ export async function clearLocalState(): Promise<void> {
 }
 
 export async function logoutFromAccount(): Promise<void> {
-  const response = await fetch(`${API_STATE_URL.replace(/\/api\/state$/, "")}/api/auth/logout`, {
+  const response = await fetch(`${API_BASE_URL}/api/auth/logout`, {
     method: "POST",
     headers: deviceHeaders(),
     credentials: "include",

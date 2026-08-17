@@ -55,7 +55,7 @@ The API stores its SQLite database in `data/study-deck.sqlite`; back up that dir
 
 Before production, also configure `GOOGLE_CLIENT_ID` on the API, use HTTPS, restrict the Google OAuth authorized origins to the real app domains, and run `npm run qa`. The API applies request size limits, Origin checks, rate limits, security headers, expired-session cleanup, and device-bound cookies. Keep `data/study-deck.sqlite` on encrypted persistent storage and back it up regularly.
 
-For account-based data isolation, set `GOOGLE_CLIENT_ID` on the API to the same Google Web Client ID. The API verifies Google ID tokens before binding the account session. Apple Sign In requires an Apple Service ID, authorized return URL, Team ID, Key ID, and private key; the Settings screen currently shows it as unavailable until those server credentials are configured.
+For account-based data isolation, set `GOOGLE_CLIENT_ID` on the API to the same Google Web Client ID. The API verifies Google ID tokens before binding the account session.
 
 ### Account and privacy
 
@@ -63,7 +63,7 @@ Google account linking is optional. Before Google is configured, the app uses an
 
 Login audit records store only the provider, success/failure, timestamp, anonymized device hash, user-agent summary, and a short failure reason. Raw ID tokens, passwords, client secrets, and private keys are never persisted.
 
-Apple Sign In is represented in Settings but requires Apple Developer credentials and a server callback before activation. Do not commit Google client secrets, Apple private keys, or production cookie secrets to the repository.
+Google login is the supported account provider. Do not commit Google client secrets or production cookie secrets to the repository.
 
 ### AIT versioning
 
