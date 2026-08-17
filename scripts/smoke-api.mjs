@@ -18,6 +18,10 @@ try {
     }
   }
   if (!healthy) throw new Error("API health check failed");
+  const accountResponse = await fetch(`http://127.0.0.1:${port}/api/account`, {
+    method: "DELETE",
+  });
+  if (accountResponse.status !== 401) throw new Error("Account deletion guard failed");
   console.log("API smoke test passed");
 } finally {
   child.kill("SIGTERM");

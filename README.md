@@ -65,6 +65,8 @@ Login audit records store only the provider, success/failure, timestamp, anonymi
 
 Google login is the supported account provider. Do not commit Google client secrets or production cookie secrets to the repository.
 
+Users can delete their account from Settings. This removes the account, sessions, ranking profile, workspace cards, photos, relations, review history, and login audit records from the API database. Publish a product-specific privacy policy and terms of service before commercial launch.
+
 ### AIT versioning
 
 Every AIT build generates a date-based version in `YYYY.MM.DD.build` format using Korea Standard Time. The generated version is shown in Settings and packaged in `build-version.json`.

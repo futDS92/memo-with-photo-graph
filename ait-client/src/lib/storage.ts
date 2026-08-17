@@ -398,3 +398,13 @@ export async function logoutFromAccount(): Promise<void> {
   if (!response.ok) throw new Error(`Logout failed: ${response.status}`);
   await clearLocalState();
 }
+
+export async function deleteAccount(): Promise<void> {
+  const response = await fetch(`${API_BASE_URL}/api/account`, {
+    method: "DELETE",
+    credentials: "include",
+    headers: deviceHeaders(),
+  });
+  if (!response.ok) throw new Error(`Account deletion failed: ${response.status}`);
+  await clearLocalState();
+}

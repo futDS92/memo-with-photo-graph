@@ -648,6 +648,30 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    if (url.pathname === "/api/account" && req.method === "DELETE") {
+      const user = getUserFromRequest(req, res, false);
+      if (!user) {
+        clearSessionCookie(res);
+        sendJson(res, 401, { error: "Account session is required" });
+        return;
+      }
+      database.exec("BEGIN IMMEDIATE");
+      try {
+        database.prepare("DELETE FROM login_audit_logs WHERE user_id = ?").run(user.id);
+        database.prepare("DELETE FROM ranking_profiles WHERE user_id = ?").run(user.id);
+        database.prepare("DELETE FROM user_states WHERE user_id = ?").run(user.id);
+        database.prepare("DELETE FROM sessions WHERE user_id = ?").run(user.id);
+        database.prepare("DELETE FROM users WHERE id = ?").run(user.id);
+        database.exec("COMMIT");
+      } catch (error) {
+        database.exec("ROLLBACK");
+        throw error;
+      }
+      clearSessionCookie(res);
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
     if (url.pathname === "/api/ranking" && req.method === "GET") {
       const user = getUserFromRequest(req, res, true);
       const period = ["week", "month", "all"].includes(url.searchParams.get("period") || "")

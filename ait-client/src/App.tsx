@@ -5,6 +5,7 @@ import {
   hydrateStateFromServer,
   authenticateWithGoogle,
   clearLocalState,
+  deleteAccount,
   loadCurrentAccount,
   loadLocalStateAsync,
   loadRanking,
@@ -610,6 +611,19 @@ export function App() {
       notify("계정에서 로그아웃했어요");
     } catch {
       notify("로그아웃하지 못했어요");
+    }
+  };
+  const removeAccount = async () => {
+    try {
+      await deleteAccount();
+      localStorage.removeItem("graphflash.account.email");
+      setAccountEmail("");
+      setAccountId("");
+      setState(normalizeWorkspace(null));
+      setView("home");
+      notify("계정과 학습 데이터를 삭제했어요");
+    } catch {
+      notify("계정을 삭제하지 못했어요");
     }
   };
   const updateRankingProfile = async () => {
@@ -1655,6 +1669,14 @@ export function App() {
               onClick={() => askConfirm("현재 프로젝트를 초기화할까요?", resetCurrentProject)}
             >
               현재 프로젝트 비우기
+            </button>
+            <strong>계정 탈퇴</strong>
+            <small>현재 계정과 모든 프로젝트·사진·학습 기록을 영구 삭제합니다.</small>
+            <button
+              type="button"
+              onClick={() => askConfirm("계정과 모든 학습 데이터를 영구 삭제할까요?", removeAccount)}
+            >
+              계정과 데이터 삭제
             </button>
           </div>
         </section>
