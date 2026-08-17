@@ -2101,6 +2101,32 @@ button {
 .account-error {
   color: var(--red);
 }
+.google-signin-state {
+  display: grid;
+  gap: 6px;
+}
+.google-signin-state small {
+  color: var(--muted);
+  font-size: 10px;
+}
+.google-signin-disabled {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  border: 1px solid #d8dee8;
+  border-radius: 10px;
+  color: #6b7280;
+  background: #f4f5f7;
+  font-size: 12px;
+  font-weight: 700;
+}
+.google-g-mark {
+  color: #4285f4;
+  font-size: 16px;
+  font-weight: 900;
+}
 .account-signout {
   justify-self: start;
   padding: 7px 10px;

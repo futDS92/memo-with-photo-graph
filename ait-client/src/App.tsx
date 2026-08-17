@@ -149,7 +149,17 @@ function GoogleSignIn({
     if (!render()) timer = window.setInterval(() => render() && timer && window.clearInterval(timer), 250);
     return () => timer && window.clearInterval(timer);
   }, []);
-  if (status === "disabled") return <p className="account-disabled">Google Client ID 설정 후 사용할 수 있어요.</p>;
+  if (status === "disabled") {
+    return (
+      <div className="google-signin-state">
+        <button className="google-signin-disabled" type="button" disabled>
+          <span className="google-g-mark" aria-hidden="true">G</span>
+          Google로 로그인
+        </button>
+        <small>Google Client ID 설정 후 활성화됩니다.</small>
+      </div>
+    );
+  }
   if (status === "error") return <p className="account-error">Google 로그인에 실패했어요. 다시 시도해주세요.</p>;
   return <div className="google-signin" ref={buttonRef} aria-label="Google로 로그인" />;
 }
