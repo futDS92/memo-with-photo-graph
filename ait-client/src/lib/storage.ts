@@ -95,6 +95,7 @@ export function loadLocalState(): AppState {
     const parsed = JSON.parse(raw);
     if (isValidState(parsed)) {
       return {
+        projects: parsed.projects,
         words: parsed.words,
         relations: parsed.relations,
         updatedAt: parsed.updatedAt || new Date().toISOString(),
@@ -208,6 +209,7 @@ export async function hydrateStateFromServer(localState?: AppState): Promise<App
     const data = (await response.json()) as AppState;
     if (!isValidState(data)) return localState || null;
     const remoteState = {
+      projects: data.projects,
       words: data.words,
       relations: data.relations,
       updatedAt: data.updatedAt || new Date().toISOString(),
@@ -227,6 +229,7 @@ export async function syncStateToServer(state: AppState): Promise<void> {
       headers: { "content-type": "application/json" },
       credentials: "include",
       body: JSON.stringify({
+        projects: state.projects,
         words: state.words,
         relations: state.relations,
         updatedAt: state.updatedAt,

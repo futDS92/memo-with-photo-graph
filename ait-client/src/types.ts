@@ -1,5 +1,6 @@
 export type Word = {
   id: string;
+  projectId?: string;
   term: string;
   pos?: string;
   definition: string;
@@ -15,6 +16,13 @@ export type Word = {
   isBookmarked?: boolean;
   cardType?: "concept" | "definition" | "formula" | "case" | "multiple-choice" | "cloze";
   choices?: string[];
+};
+
+export type Project = {
+  id: string;
+  name: string;
+  description?: string;
+  color?: string;
 };
 
 export type RelationType =
@@ -36,6 +44,7 @@ export type Relation = {
 };
 
 export type AppState = {
+  projects?: Project[];
   words: Word[];
   relations: Relation[];
   updatedAt: string;

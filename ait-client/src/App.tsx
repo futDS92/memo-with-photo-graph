@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { seedState } from "./data/seed";
+import { defaultProject, seedState } from "./data/seed";
 import {
   hydrateStateFromServer,
   loadLocalStateAsync,
   saveLocalState,
   syncStateToServer,
 } from "./lib/storage";
-import { relationTypes, type AppState, type RelationType, type Word } from "./types";
+import { relationTypes, type AppState, type Project, type RelationType, type Word } from "./types";
 
 type View = "home" | "decks" | "study" | "mistakes" | "graph" | "stats" | "settings";
 type StudyMode = "due" | "mistakes";
@@ -347,6 +347,21 @@ function localizeSeedCards(state: AppState): AppState {
     }),
   };
 }
+function normalizeWorkspace(state: AppState): AppState {
+  const projects = state.projects?.length ? state.projects : [defaultProject];
+  const fallbackProjectId = projects[0].id;
+  const projectIds = new Set(projects.map((project) => project.id));
+  return {
+    ...state,
+    projects,
+    words: state.words.map((word) => ({
+      ...word,
+      projectId:
+        word.projectId && projectIds.has(word.projectId) ? word.projectId : fallbackProjectId,
+    })),
+    schemaVersion: 2,
+  };
+}
 const studySessionKey = "memo-with-photo-graph.study-session";
 function saveStudySession(session: { mode: StudyMode; ids: string[]; index: number } | null) {
   try {
@@ -373,10 +388,12 @@ function readStudySession(): { mode: StudyMode; ids: string[]; index: number } |
 export function App() {
   const [state, setState] = useState<AppState>(() => seedState);
   const [view, setView] = useState<View>("home");
+  const [currentProjectId, setCurrentProjectId] = useState(defaultProject.id);
   const [mode, setMode] = useState<StudyMode>("due");
   const [subject, setSubject] = useState("All");
   const [customSubjects, setCustomSubjects] = useState<string[]>([]);
   const [newSubject, setNewSubject] = useState("");
+  const [newProjectName, setNewProjectName] = useState("");
   const [studyIds, setStudyIds] = useState<string[]>([]);
   const [studyIndex, setStudyIndex] = useState(0);
   const [revealed, setRevealed] = useState(false);
@@ -416,7 +433,17 @@ export function App() {
   const syncQueue = useRef(Promise.resolve());
   const toastTimer = useRef<number | null>(null);
 
-  const cards = state.words;
+  const projects = state.projects?.length ? state.projects : [defaultProject];
+  const currentProject = projects.find((project) => project.id === currentProjectId) || projects[0];
+  const cards = state.words.filter(
+    (card) => (card.projectId || projects[0].id) === currentProject.id,
+  );
+  const projectRelations = useMemo(() => {
+    const cardIds = new Set(cards.map((card) => card.id));
+    return state.relations.filter(
+      (relation) => cardIds.has(relation.fromWordId) && cardIds.has(relation.toWordId),
+    );
+  }, [cards, state.relations]);
   const selected = cards.find((card) => card.id === selectedId);
   const subjects = useMemo(
     () => ["All", ...Array.from(new Set([...customSubjects, ...cards.map(cardSubject)]))],
@@ -449,15 +476,15 @@ export function App() {
     );
     if (graphFocusId === "all") return base.slice(0, 12);
     const connected = new Set([graphFocusId]);
-    state.relations.forEach((relation) => {
+    projectRelations.forEach((relation) => {
       if (relation.fromWordId === graphFocusId) connected.add(relation.toWordId);
       if (relation.toWordId === graphFocusId) connected.add(relation.fromWordId);
     });
     return base.filter((card) => connected.has(card.id)).slice(0, 12);
-  }, [cards, graphFocusId, graphSubject, state.relations]);
+  }, [cards, graphFocusId, graphSubject, projectRelations]);
   const graphPositions = useMemo(
-    () => graphLayout(graphCards, state.relations),
-    [graphCards, state.relations],
+    () => graphLayout(graphCards, projectRelations),
+    [graphCards, projectRelations],
   );
   const graphDisplayPositions = useMemo(
     () =>
@@ -468,12 +495,12 @@ export function App() {
     const neighbors = new Set<string>();
     if (graphFocusId === "all") return neighbors;
     neighbors.add(graphFocusId);
-    state.relations.forEach((relation) => {
+    projectRelations.forEach((relation) => {
       if (relation.fromWordId === graphFocusId) neighbors.add(relation.toWordId);
       if (relation.toWordId === graphFocusId) neighbors.add(relation.fromWordId);
     });
     return neighbors;
-  }, [graphFocusId, state.relations]);
+  }, [graphFocusId, projectRelations]);
   const totalAttempts = cards.reduce(
     (sum, card) => sum + (card.correctCount || 0) + (card.incorrectCount || 0),
     0,
@@ -495,8 +522,9 @@ export function App() {
       if (!mounted) return null;
       return hydrateStateFromServer(local).then((remote) => {
         if (!mounted) return null;
-        const hydrated = localizeSeedCards(remote || local);
+        const hydrated = normalizeWorkspace(localizeSeedCards(remote || local));
         setState(hydrated);
+        setCurrentProjectId(hydrated.projects?.[0]?.id || defaultProject.id);
         const savedSession = readStudySession();
         if (savedSession) {
           const availableIds = savedSession.ids.filter((id) =>
@@ -723,6 +751,7 @@ export function App() {
       .filter(Boolean);
     const newCard: Word = {
       id: newId("card"),
+      projectId: currentProject.id,
       term: question,
       definition: answer,
       pos: String(data.get("subject") || "Other"),
@@ -863,7 +892,9 @@ export function App() {
     try {
       const parsed: unknown = JSON.parse(await file.text());
       if (!isValidImportedState(parsed)) throw new Error("Invalid deck");
-      setState({ ...parsed, updatedAt: new Date().toISOString(), schemaVersion: 2 });
+      setState(
+        normalizeWorkspace({ ...parsed, updatedAt: new Date().toISOString(), schemaVersion: 2 }),
+      );
       notify("Deck imported");
     } catch {
       notify("Could not import this deck");
@@ -895,7 +926,7 @@ export function App() {
       return;
     }
     if (
-      state.relations.some(
+      projectRelations.some(
         (relation) =>
           relation.fromWordId === relationFrom &&
           relation.toWordId === relationTo &&
@@ -941,6 +972,48 @@ export function App() {
     const next = customSubjects.filter((subjectName) => subjectName !== value);
     setCustomSubjects(next);
     localStorage.setItem("study-deck.subjects", JSON.stringify(next));
+  };
+  const addProject = () => {
+    const name = newProjectName.trim();
+    if (!name || projects.some((project) => project.name === name)) return;
+    const project: Project = {
+      id: newId("project"),
+      name,
+      color: ["#3182F6", "#30A46C", "#E89127", "#9B6BFF"][projects.length % 4],
+    };
+    setState((current) => ({
+      ...current,
+      projects: [...(current.projects || projects), project],
+      updatedAt: new Date().toISOString(),
+      schemaVersion: 2,
+    }));
+    setCurrentProjectId(project.id);
+    setNewProjectName("");
+    setView("home");
+    notify("프로젝트를 만들었어요");
+  };
+  const removeProject = (projectId: string) => {
+    if (projects.length <= 1) return;
+    const nextProjects = projects.filter((project) => project.id !== projectId);
+    const nextProjectId = nextProjects[0].id;
+    setState((current) => ({
+      ...current,
+      projects: nextProjects,
+      words: current.words.filter((word) => word.projectId !== projectId),
+      relations: current.relations.filter(
+        (relation) =>
+          current.words.some(
+            (word) => word.id === relation.fromWordId && word.projectId !== projectId,
+          ) &&
+          current.words.some(
+            (word) => word.id === relation.toWordId && word.projectId !== projectId,
+          ),
+      ),
+      updatedAt: new Date().toISOString(),
+      schemaVersion: 2,
+    }));
+    setCurrentProjectId(nextProjectId);
+    notify("프로젝트를 삭제했어요");
   };
 
   return (
@@ -1070,6 +1143,73 @@ export function App() {
             <div>
               <p>WORKSPACE</p>
               <h1>Settings</h1>
+            </div>
+          </div>
+          <div className="settings-section">
+            <div className="settings-section-head">
+              <div>
+                <strong>Projects</strong>
+                <small>Each project has its own cards, photos, study history, and map.</small>
+              </div>
+            </div>
+            <form
+              className="subject-create"
+              onSubmit={(event) => {
+                event.preventDefault();
+                addProject();
+              }}
+            >
+              <input
+                value={newProjectName}
+                onChange={(event) => setNewProjectName(event.target.value)}
+                placeholder="New project name"
+                aria-label="새 프로젝트"
+              />
+              <button className="known" type="submit">
+                Create
+              </button>
+            </form>
+            <div className="settings-project-list">
+              {projects.map((project) => (
+                <div key={project.id} className={project.id === currentProject.id ? "active" : ""}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCurrentProjectId(project.id);
+                      setView("home");
+                    }}
+                  >
+                    <span
+                      className="project-color"
+                      style={{ background: project.color || "#3182F6" }}
+                    />
+                    <span>
+                      <strong>{project.name}</strong>
+                      <small>
+                        {
+                          state.words.filter(
+                            (card) => (card.projectId || projects[0].id) === project.id,
+                          ).length
+                        }{" "}
+                        cards
+                      </small>
+                    </span>
+                  </button>
+                  {projects.length > 1 && (
+                    <button
+                      className="settings-remove"
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm("이 프로젝트와 카드·맵을 삭제할까요?"))
+                          removeProject(project.id);
+                      }}
+                      aria-label={`${project.name} 프로젝트 삭제`}
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
           <div className="settings-section">
@@ -1212,6 +1352,23 @@ export function App() {
             <small>Turn your syllabus into cards</small>
           </div>
         </div>
+        <select
+          className="project-switcher"
+          value={currentProject.id}
+          onChange={(event) => {
+            setCurrentProjectId(event.target.value);
+            setSubject("All");
+            setGraphFocusId("all");
+            setView("home");
+          }}
+          aria-label="프로젝트 선택"
+        >
+          {projects.map((project) => (
+            <option value={project.id} key={project.id}>
+              {project.name}
+            </option>
+          ))}
+        </select>
         <div className="data-actions">
           <label className="data-button">
             Import
@@ -1553,7 +1710,7 @@ export function App() {
               <p>KNOWLEDGE MAP</p>
               <h1>Connections</h1>
             </div>
-            <span className="graph-count">{state.relations.length} links</span>
+            <span className="graph-count">{projectRelations.length} links</span>
           </div>
           <p className="graph-intro">Connect concepts to see how your syllabus fits together.</p>
           <div className="graph-canvas">
@@ -1564,7 +1721,7 @@ export function App() {
               role="img"
               aria-label="Knowledge graph"
             >
-              {state.relations.map((relation) => {
+              {projectRelations.map((relation) => {
                 const from = graphDisplayPositions.get(relation.fromWordId);
                 const to = graphDisplayPositions.get(relation.toWordId);
                 if (!from || !to) return null;
@@ -1721,7 +1878,7 @@ export function App() {
             </div>
           </div>
           <div className="relation-list">
-            {state.relations.map((relation) => (
+            {projectRelations.map((relation) => (
               <div key={relation.id}>
                 <span>
                   <strong>
