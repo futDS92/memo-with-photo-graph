@@ -1097,7 +1097,7 @@ export function App() {
       )}
       <header className="study-topbar">
         <div className="study-brand">
-          <img className="study-logo" src="./brand/graphflash-logo.png" alt="GraphFlash" />
+          <img className="study-logo" src="./brand/graphflash-logo-3d.png" alt="GraphFlash" />
           <div>
             <strong>study deck</strong>
             <small>Turn your syllabus into cards</small>
