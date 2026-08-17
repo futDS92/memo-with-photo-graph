@@ -50,7 +50,7 @@ VITE_TOSS_AD_GROUP_ID=your-console-ad-group-id
 VITE_GOOGLE_CLIENT_ID=683844235354-45qu9ct2r5cv9j9ddi5jedd23kunk0h4.apps.googleusercontent.com
 ```
 
-Set `CLIENT_ORIGIN` to the Pages origin. For HTTPS cross-origin cookies also set `COOKIE_SECURE=true`.
+The API allows GraphFlash's live and QR-test Toss origins by default: `https://graphflash.apps.tossmini.com` and `https://graphflash.private-apps.tossmini.com`. Use comma-separated `CLIENT_ORIGINS` to replace that list when adding a custom domain. For HTTPS cross-origin cookies also set `COOKIE_SECURE=true`.
 The API stores its SQLite database in `data/study-deck.sqlite`; back up that directory in production.
 
 Before production, also configure `GOOGLE_CLIENT_ID` on the API, use HTTPS, restrict the Google OAuth authorized origins to the real app domains, and run `npm run qa`. The API applies request size limits, Origin checks, rate limits, security headers, expired-session cleanup, and device-bound cookies. Keep `data/study-deck.sqlite` on encrypted persistent storage and back it up regularly.

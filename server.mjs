@@ -19,6 +19,10 @@ const googleClientId =
   "683844235354-45qu9ct2r5cv9j9ddi5jedd23kunk0h4.apps.googleusercontent.com";
 const googleClient = googleClientId ? new OAuth2Client(googleClientId) : null;
 const maxBodyBytes = 8 * 1024 * 1024;
+const defaultClientOrigins = [
+  "https://graphflash.apps.tossmini.com",
+  "https://graphflash.private-apps.tossmini.com",
+];
 const requestBuckets = new Map();
 let writeQueue = Promise.resolve();
 let legacyState;
@@ -521,7 +525,8 @@ function clearSessionCookie(res) {
 }
 
 function sendJson(res, statusCode, body, origin = "") {
-  const allowedOrigin = process.env.CLIENT_ORIGIN || origin;
+  const requestOrigin = origin || res.__graphflashOrigin || "";
+  const allowedOrigin = isOriginAllowed(requestOrigin) ? requestOrigin : "";
   res.writeHead(statusCode, {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
@@ -537,6 +542,20 @@ function sendJson(res, statusCode, body, origin = "") {
   res.end(JSON.stringify(body));
 }
 
+function configuredClientOrigins() {
+  const value = process.env.CLIENT_ORIGINS || process.env.CLIENT_ORIGIN;
+  return value
+    ? value
+        .split(",")
+        .map((origin) => origin.trim())
+        .filter(Boolean)
+    : defaultClientOrigins;
+}
+
+function isOriginAllowed(origin) {
+  return !origin || configuredClientOrigins().includes(origin);
+}
+
 async function readRequestJson(req) {
   const declaredLength = Number(req.headers["content-length"] || 0);
   if (declaredLength > maxBodyBytes) throw new Error("PAYLOAD_TOO_LARGE");
@@ -549,9 +568,8 @@ async function readRequestJson(req) {
 }
 
 function isAllowedOrigin(req) {
-  const configured = process.env.CLIENT_ORIGIN;
   const origin = req.headers.origin;
-  return !configured || !origin || origin === configured;
+  return isOriginAllowed(origin);
 }
 
 function isRateLimited(req) {
@@ -576,6 +594,7 @@ function isRateLimited(req) {
 
 const server = createServer(async (req, res) => {
   try {
+    res.__graphflashOrigin = req.headers.origin || "";
     const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
 
     if (isRateLimited(req)) {
@@ -588,7 +607,7 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === "OPTIONS") {
-      const allowedOrigin = process.env.CLIENT_ORIGIN || req.headers.origin;
+      const allowedOrigin = isOriginAllowed(req.headers.origin || "") ? req.headers.origin : "";
       res.writeHead(
         204,
         allowedOrigin
