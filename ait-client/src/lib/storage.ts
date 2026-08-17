@@ -261,6 +261,7 @@ export async function hydrateStateFromServer(localState?: AppState): Promise<App
 }
 
 export async function loadCurrentAccount(): Promise<{
+  id: string;
   email: string | null;
   isAnonymous: boolean;
 } | null> {
@@ -272,10 +273,11 @@ export async function loadCurrentAccount(): Promise<{
     });
     if (!response.ok) return null;
     const data = (await response.json()) as {
-      user?: { email?: string | null; isAnonymous?: boolean };
+      user?: { id?: string; email?: string | null; isAnonymous?: boolean };
     };
-    if (!data.user) return null;
+    if (!data.user?.id) return null;
     return {
+      id: data.user.id,
       email: data.user.email || null,
       isAnonymous: Boolean(data.user.isAnonymous),
     };
@@ -357,7 +359,7 @@ export async function saveRankingProfile(
 
 export async function authenticateWithGoogle(
   credential: string,
-): Promise<{ user: { email: string }; migratedAnonymous: boolean }> {
+): Promise<{ user: { id: string; email: string }; migratedAnonymous: boolean }> {
   const response = await fetch(`${API_BASE_URL}/api/auth/google`, {
     method: "POST",
     headers: deviceHeaders({ "content-type": "application/json" }),
@@ -365,7 +367,10 @@ export async function authenticateWithGoogle(
     body: JSON.stringify({ credential }),
   });
   if (!response.ok) throw new Error(`Google authentication failed: ${response.status}`);
-  return (await response.json()) as { email: string };
+  return (await response.json()) as {
+    user: { id: string; email: string };
+    migratedAnonymous: boolean;
+  };
 }
 
 export async function clearLocalState(): Promise<void> {

@@ -112,7 +112,7 @@ function GoogleSignIn({
   onAuthFinished,
 }: {
   onAuthStarting: () => void;
-  onSignedIn: (email: string, migratedAnonymous: boolean) => void;
+  onSignedIn: (email: string, migratedAnonymous: boolean, id: string) => void;
   onAuthFinished: () => void;
 }) {
   const buttonRef = useRef<HTMLDivElement>(null);
@@ -134,7 +134,7 @@ function GoogleSignIn({
           onAuthStarting();
           try {
             const result = await authenticateWithGoogle(credential);
-            await onSignedInRef.current(result.user.email, result.migratedAnonymous);
+            await onSignedInRef.current(result.user.email, result.migratedAnonymous, result.user.id);
           } catch {
             setStatus("error");
           } finally {
@@ -419,6 +419,7 @@ export function App() {
   const [accountEmail, setAccountEmail] = useState(
     () => localStorage.getItem("graphflash.account.email") || "",
   );
+  const [accountId, setAccountId] = useState("");
   const [showOnboarding, setShowOnboarding] = useState(
     () => localStorage.getItem("graphflash.onboarding") !== "complete",
   );
@@ -569,9 +570,10 @@ export function App() {
     localStorage.setItem("graphflash.onboarding", "complete");
     setShowOnboarding(false);
   };
-  const handleGoogleSignedIn = async (email: string, migratedAnonymous: boolean) => {
+  const handleGoogleSignedIn = async (email: string, migratedAnonymous: boolean, id: string) => {
     localStorage.setItem("graphflash.account.email", email);
     setAccountEmail(email);
+    setAccountId(id);
     if (!migratedAnonymous) await clearLocalState();
     const remote = await hydrateStateFromServer();
     if (remote) setState(normalizeWorkspace(localizeSeedCards(remote)));
@@ -590,6 +592,7 @@ export function App() {
       await logoutFromAccount();
       localStorage.removeItem("graphflash.account.email");
       setAccountEmail("");
+      setAccountId("");
       const local = await loadLocalStateAsync();
       setState(normalizeWorkspace(local));
       notify("계정에서 로그아웃했어요");
@@ -622,6 +625,7 @@ export function App() {
   useEffect(() => {
     loadCurrentAccount().then((account) => {
       if (!account) return;
+      setAccountId(account.id);
       if (account.isAnonymous || !account.email) {
         localStorage.removeItem("graphflash.account.email");
         setAccountEmail("");
@@ -1543,7 +1547,11 @@ export function App() {
             <div className="settings-section-head">
               <div>
                 <strong>계정 연결</strong>
-                <small>{accountEmail ? `${accountEmail}로 연결됨` : "계정별로 카드와 학습 기록을 분리해요."}</small>
+                <small>
+                  {accountEmail
+                    ? `${accountEmail}로 연결됨`
+                    : `익명 계정 · ${accountId ? accountId.slice(-8) : "확인 중"}`}
+                </small>
               </div>
             </div>
             <GoogleSignIn
