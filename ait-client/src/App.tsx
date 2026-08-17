@@ -1359,23 +1359,26 @@ export function App() {
             <small>Turn your syllabus into cards</small>
           </div>
         </button>
-        <select
-          className="project-switcher"
-          value={currentProject.id}
-          onChange={(event) => {
-            setCurrentProjectId(event.target.value);
-            setSubject("All");
+        <label className="project-picker">
+          <span>프로젝트 선택</span>
+          <select
+            className="project-switcher"
+            value={currentProject.id}
+            onChange={(event) => {
+              setCurrentProjectId(event.target.value);
+              setSubject("All");
               focusGraphNode("all");
-            setView("home");
-          }}
-          aria-label="프로젝트 선택"
-        >
-          {projects.map((project) => (
-            <option value={project.id} key={project.id}>
-              {project.name}
-            </option>
-          ))}
-        </select>
+              setView("home");
+            }}
+            aria-label="프로젝트 선택"
+          >
+            {projects.map((project) => (
+              <option value={project.id} key={project.id}>
+                {project.name}
+              </option>
+            ))}
+          </select>
+        </label>
         <div className="data-actions">
           <button className="data-button" type="button" onClick={exportJson}>
             Export
