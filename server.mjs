@@ -3,7 +3,7 @@ import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { OAuth2Client } from "google-auth-library";
 
@@ -16,6 +16,8 @@ const databasePath = join(dataDir, "study-deck.sqlite");
 const port = Number(process.env.PORT || 4180);
 const googleClientId = process.env.GOOGLE_CLIENT_ID || "";
 const googleClient = googleClientId ? new OAuth2Client(googleClientId) : null;
+const maxBodyBytes = 8 * 1024 * 1024;
+const requestBuckets = new Map();
 let writeQueue = Promise.resolve();
 let legacyState;
 
@@ -23,11 +25,15 @@ mkdirSync(dataDir, { recursive: true });
 const database = new DatabaseSync(databasePath);
 database.exec(`
   PRAGMA journal_mode = WAL;
-  CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE, google_sub TEXT UNIQUE, password_hash TEXT, is_anonymous INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL);
+  PRAGMA foreign_keys = ON;
+  PRAGMA busy_timeout = 5000;
+  CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE, google_sub TEXT UNIQUE, password_hash TEXT, is_anonymous INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, last_login_at TEXT);
   CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id TEXT NOT NULL, device_id TEXT NOT NULL DEFAULT '', expires_at TEXT NOT NULL, FOREIGN KEY(user_id) REFERENCES users(id));
   CREATE TABLE IF NOT EXISTS user_states (user_id TEXT PRIMARY KEY, projects_json TEXT NOT NULL DEFAULT '[]', words_json TEXT NOT NULL, relations_json TEXT NOT NULL, review_log_json TEXT NOT NULL DEFAULT '[]', updated_at TEXT NOT NULL, FOREIGN KEY(user_id) REFERENCES users(id));
   CREATE TABLE IF NOT EXISTS ranking_profiles (user_id TEXT PRIMARY KEY, nickname TEXT NOT NULL, opted_in INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL, FOREIGN KEY(user_id) REFERENCES users(id));
+  CREATE TABLE IF NOT EXISTS login_audit_logs (id TEXT PRIMARY KEY, user_id TEXT, provider TEXT NOT NULL, success INTEGER NOT NULL, reason TEXT, device_hash TEXT, user_agent TEXT, created_at TEXT NOT NULL, FOREIGN KEY(user_id) REFERENCES users(id));
 `);
+database.prepare("DELETE FROM sessions WHERE expires_at <= ?").run(new Date().toISOString());
 try {
   database.exec("ALTER TABLE user_states ADD COLUMN projects_json TEXT NOT NULL DEFAULT '[]'");
 } catch {
@@ -45,6 +51,11 @@ try {
 }
 try {
   database.exec("ALTER TABLE users ADD COLUMN google_sub TEXT");
+} catch {
+  /* Existing database already has the column. */
+}
+try {
+  database.exec("ALTER TABLE users ADD COLUMN last_login_at TEXT");
 } catch {
   /* Existing database already has the column. */
 }
@@ -235,18 +246,46 @@ function createAnonymousUser() {
   return id;
 }
 
+function recordLoginAudit({ userId = null, provider, success, reason = "", deviceId, userAgent }) {
+  const deviceHash = deviceId
+    ? createHash("sha256").update(deviceId).digest("hex").slice(0, 24)
+    : null;
+  database
+    .prepare("INSERT INTO login_audit_logs (id, user_id, provider, success, reason, device_hash, user_agent, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+    .run(
+      `audit-${randomBytes(12).toString("hex")}`,
+      userId,
+      provider,
+      success ? 1 : 0,
+      reason.slice(0, 120),
+      deviceHash,
+      String(userAgent || "").slice(0, 300),
+      new Date().toISOString(),
+    );
+}
+
 async function authenticateGoogle(req, res, credential) {
+  const deviceId = requestDeviceId(req);
+  const userAgent = req.headers["user-agent"];
   if (!googleClient) {
+    recordLoginAudit({ provider: "google", success: false, reason: "not_configured", deviceId, userAgent });
     sendJson(res, 503, { error: "Google authentication is not configured" });
     return;
   }
-  const ticket = await googleClient.verifyIdToken({ idToken: credential, audience: googleClientId });
-  const payload = ticket.getPayload();
-  if (!payload?.sub || !payload.email || payload.email_verified !== true) {
+  let ticket;
+  try {
+    ticket = await googleClient.verifyIdToken({ idToken: credential, audience: googleClientId });
+  } catch {
+    recordLoginAudit({ provider: "google", success: false, reason: "invalid_token", deviceId, userAgent });
     sendJson(res, 401, { error: "Google account verification failed" });
     return;
   }
-  const deviceId = requestDeviceId(req);
+  const payload = ticket.getPayload();
+  if (!payload?.sub || !payload.email || payload.email_verified !== true) {
+    recordLoginAudit({ provider: "google", success: false, reason: "unverified_account", deviceId, userAgent });
+    sendJson(res, 401, { error: "Google account verification failed" });
+    return;
+  }
   const existingSession = getUserFromRequest(req, res, false);
   let user = database.prepare("SELECT id, email, is_anonymous FROM users WHERE google_sub = ?").get(payload.sub);
   let migratedAnonymous = false;
@@ -264,6 +303,8 @@ async function authenticateGoogle(req, res, credential) {
       .run(userId, payload.email, payload.sub, new Date().toISOString());
     user = { id: userId, email: payload.email, is_anonymous: 0 };
   }
+  database.prepare("UPDATE users SET last_login_at = ? WHERE id = ?").run(new Date().toISOString(), user.id);
+  recordLoginAudit({ userId: user.id, provider: "google", success: true, deviceId, userAgent });
   const token = createSession(user.id, deviceId);
   setSessionCookie(res, token);
   sendJson(res, 200, { user: { id: user.id, email: user.email, isAnonymous: false }, migratedAnonymous });
@@ -424,7 +465,15 @@ async function writeState(state) {
 }
 
 function isValidState(state) {
-  if (!state || !Array.isArray(state.words) || !Array.isArray(state.relations)) return false;
+  if (
+    !state ||
+    !Array.isArray(state.words) ||
+    !Array.isArray(state.relations) ||
+    state.words.length > 10000 ||
+    state.relations.length > 30000 ||
+    (Array.isArray(state.projects) && state.projects.length > 100)
+  )
+    return false;
   const ids = new Set();
   for (const word of state.words) {
     if (
@@ -435,10 +484,19 @@ function isValidState(state) {
       !Array.isArray(word.tags)
     )
       return false;
+    if (
+      word.term.length > 500 ||
+      word.definition.length > 12000 ||
+      (word.memo && word.memo.length > 12000) ||
+      (word.photo && word.photo.length > 1_500_000) ||
+      word.tags.length > 50
+    )
+      return false;
     if (ids.has(word.id)) return false;
     ids.add(word.id);
   }
   const relationIds = new Set();
+  if (Array.isArray(state.reviewLog) && state.reviewLog.length > 10000) return false;
   return state.relations.every(
     (relation) =>
       relation &&
@@ -452,11 +510,23 @@ function isValidState(state) {
   );
 }
 
+function clearSessionCookie(res) {
+  const secure = process.env.COOKIE_SECURE === "true";
+  res.setHeader(
+    "set-cookie",
+    `study_session=; HttpOnly; SameSite=${secure ? "None" : "Lax"};${secure ? " Secure;" : ""} Path=/; Max-Age=0`,
+  );
+}
+
 function sendJson(res, statusCode, body, origin = "") {
   const allowedOrigin = process.env.CLIENT_ORIGIN || origin;
   res.writeHead(statusCode, {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+    "x-frame-options": "DENY",
+    "referrer-policy": "no-referrer",
+    "permissions-policy": "camera=(), microphone=(), geolocation=()",
     ...(allowedOrigin ? { "access-control-allow-origin": allowedOrigin } : {}),
     "access-control-allow-credentials": "true",
     "access-control-allow-headers": "content-type, x-graphflash-device",
@@ -466,14 +536,48 @@ function sendJson(res, statusCode, body, origin = "") {
 }
 
 async function readRequestJson(req) {
+  const declaredLength = Number(req.headers["content-length"] || 0);
+  if (declaredLength > maxBodyBytes) throw new Error("PAYLOAD_TOO_LARGE");
   const chunks = [];
+  let total = 0;
   for await (const chunk of req) chunks.push(chunk);
+  total = chunks.reduce((size, chunk) => size + chunk.length, 0);
+  if (total > maxBodyBytes) throw new Error("PAYLOAD_TOO_LARGE");
   return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+}
+
+function isAllowedOrigin(req) {
+  const configured = process.env.CLIENT_ORIGIN;
+  const origin = req.headers.origin;
+  return !configured || !origin || origin === configured;
+}
+
+function isRateLimited(req) {
+  const address = req.socket.remoteAddress || "unknown";
+  const key = `${address}:${req.url?.split("?")[0] || "/"}`;
+  const now = Date.now();
+  const bucket = requestBuckets.get(key) || { startedAt: now, count: 0 };
+  if (now - bucket.startedAt > 60_000) {
+    bucket.startedAt = now;
+    bucket.count = 0;
+  }
+  bucket.count += 1;
+  requestBuckets.set(key, bucket);
+  return bucket.count > (req.url?.startsWith("/api/auth/") ? 12 : 180);
 }
 
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
+
+    if (isRateLimited(req)) {
+      sendJson(res, 429, { error: "Too many requests" });
+      return;
+    }
+    if (!isAllowedOrigin(req)) {
+      sendJson(res, 403, { error: "Origin is not allowed" });
+      return;
+    }
 
     if (req.method === "OPTIONS") {
       const allowedOrigin = process.env.CLIENT_ORIGIN || req.headers.origin;
@@ -497,6 +601,26 @@ const server = createServer(async (req, res) => {
       return;
     }
 
+    if (url.pathname === "/api/me" && req.method === "GET") {
+      const user = getUserFromRequest(req, res, true);
+      sendJson(res, 200, {
+        user: {
+          id: user.id,
+          email: user.email,
+          isAnonymous: Boolean(user.is_anonymous),
+        },
+      });
+      return;
+    }
+
+    if (url.pathname === "/api/auth/logout" && req.method === "POST") {
+      const token = parseCookies(req).study_session;
+      if (token) database.prepare("DELETE FROM sessions WHERE token = ?").run(token);
+      clearSessionCookie(res);
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
     if (url.pathname === "/api/ranking" && req.method === "GET") {
       const user = getUserFromRequest(req, res, true);
       const period = ["week", "month", "all"].includes(url.searchParams.get("period") || "")
@@ -511,7 +635,7 @@ const server = createServer(async (req, res) => {
       try {
         payload = await readRequestJson(req);
       } catch {
-        sendJson(res, 400, { error: "Request body must be valid JSON" });
+        sendJson(res, 413, { error: "Request body is too large or invalid" });
         return;
       }
       const nickname = String(payload.nickname || "").trim().slice(0, 20);
@@ -532,7 +656,7 @@ const server = createServer(async (req, res) => {
       try {
         payload = await readRequestJson(req);
       } catch {
-        sendJson(res, 400, { error: "Request body must be valid JSON" });
+        sendJson(res, 413, { error: "Request body is too large or invalid" });
         return;
       }
       if (typeof payload.credential !== "string" || !payload.credential) {
@@ -555,7 +679,7 @@ const server = createServer(async (req, res) => {
       try {
         payload = await readRequestJson(req);
       } catch {
-        sendJson(res, 400, { error: "Request body must be valid JSON" });
+        sendJson(res, 413, { error: "Request body is too large or invalid" });
         return;
       }
       if (!isValidState(payload)) {

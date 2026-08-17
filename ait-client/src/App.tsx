@@ -4,8 +4,10 @@ import { defaultProject, seedState } from "./data/seed";
 import {
   hydrateStateFromServer,
   authenticateWithGoogle,
+  clearLocalState,
   loadLocalStateAsync,
   loadRanking,
+  logoutFromAccount,
   saveLocalState,
   saveRankingProfile,
   syncStateToServer,
@@ -103,7 +105,7 @@ type GoogleWindow = Window & {
   };
 };
 
-function GoogleSignIn({ onSignedIn }: { onSignedIn: (email: string) => void }) {
+function GoogleSignIn({ onSignedIn }: { onSignedIn: (email: string, migratedAnonymous: boolean) => void }) {
   const buttonRef = useRef<HTMLDivElement>(null);
   const onSignedInRef = useRef(onSignedIn);
   const [status, setStatus] = useState<"ready" | "disabled" | "error">("ready");
@@ -122,7 +124,7 @@ function GoogleSignIn({ onSignedIn }: { onSignedIn: (email: string) => void }) {
         callback: async ({ credential }) => {
           try {
             const result = await authenticateWithGoogle(credential);
-            onSignedInRef.current(result.user.email);
+            onSignedInRef.current(result.user.email, result.migratedAnonymous);
           } catch {
             setStatus("error");
           }
@@ -553,13 +555,25 @@ export function App() {
     localStorage.setItem("graphflash.onboarding", "complete");
     setShowOnboarding(false);
   };
-  const handleGoogleSignedIn = (email: string) => {
+  const handleGoogleSignedIn = async (email: string, migratedAnonymous: boolean) => {
     localStorage.setItem("graphflash.account.email", email);
     setAccountEmail(email);
-    void hydrateStateFromServer().then((remote) => {
-      if (remote) setState(normalizeWorkspace(localizeSeedCards(remote)));
-    });
+    if (!migratedAnonymous) await clearLocalState();
+    const remote = await hydrateStateFromServer();
+    if (remote) setState(normalizeWorkspace(localizeSeedCards(remote)));
     notify("Google 계정으로 연결했어요");
+  };
+  const signOutAccount = async () => {
+    try {
+      await logoutFromAccount();
+      localStorage.removeItem("graphflash.account.email");
+      setAccountEmail("");
+      const local = await loadLocalStateAsync();
+      setState(normalizeWorkspace(local));
+      notify("계정에서 로그아웃했어요");
+    } catch {
+      notify("로그아웃하지 못했어요");
+    }
   };
   const updateRankingProfile = async () => {
     const nickname = rankingNickname.trim();
@@ -1491,6 +1505,11 @@ export function App() {
               </div>
             </div>
             <GoogleSignIn onSignedIn={handleGoogleSignedIn} />
+            {accountEmail && (
+              <button className="account-signout" type="button" onClick={() => askConfirm("이 기기에서 계정을 로그아웃할까요?", signOutAccount)}>
+                로그아웃
+              </button>
+            )}
             <div className="apple-signin-placeholder">
               <span className="apple-mark">●</span>
               <span>

@@ -53,11 +53,15 @@ VITE_GOOGLE_CLIENT_ID=your-google-web-client-id
 Set `CLIENT_ORIGIN` to the Pages origin. For HTTPS cross-origin cookies also set `COOKIE_SECURE=true`.
 The API stores its SQLite database in `data/study-deck.sqlite`; back up that directory in production.
 
+Before production, also configure `GOOGLE_CLIENT_ID` on the API, use HTTPS, restrict the Google OAuth authorized origins to the real app domains, and run `npm run qa`. The API applies request size limits, Origin checks, rate limits, security headers, expired-session cleanup, and device-bound cookies. Keep `data/study-deck.sqlite` on encrypted persistent storage and back it up regularly.
+
 For account-based data isolation, set `GOOGLE_CLIENT_ID` on the API to the same Google Web Client ID. The API verifies Google ID tokens before binding the account session. Apple Sign In requires an Apple Service ID, authorized return URL, Team ID, Key ID, and private key; the Settings screen currently shows it as unavailable until those server credentials are configured.
 
 ### Account and privacy
 
 Google account linking is optional. Before Google is configured, the app uses an anonymous session bound to a browser device key. After Google sign-in, the verified Google account becomes the owner of the workspace, so the same account can access its cards across devices. The API never accepts a client-supplied Google user ID; it verifies the ID token first. A new Google account can adopt the current anonymous workspace, while signing into an existing Google account switches to that account's workspace.
+
+Login audit records store only the provider, success/failure, timestamp, anonymized device hash, user-agent summary, and a short failure reason. Raw ID tokens, passwords, client secrets, and private keys are never persisted.
 
 Apple Sign In is represented in Settings but requires Apple Developer credentials and a server callback before activation. Do not commit Google client secrets, Apple private keys, or production cookie secrets to the repository.
 
@@ -66,6 +70,16 @@ Apple Sign In is represented in Settings but requires Apple Developer credential
 Every AIT build generates a date-based version in `YYYY.MM.DD.build` format using Korea Standard Time. The generated version is shown in Settings and packaged in `build-version.json`.
 
 `VITE_TOSS_AD_GROUP_ID` is the banner ad group ID issued by the Apps-in-Toss console. Toss Ads can mediate Toss inventory and AdMob inventory according to the console configuration. If the ID is missing, the runtime is unsupported, initialization fails, or there is no fill, GraphFlash shows a compact `광고 없음` state instead of leaving a broken blank slot. Use `ait-ad-test-banner-id` only for local/test builds.
+
+The current photo path compresses photos into the workspace payload for local-first behavior. For a high-volume commercial launch, move photo blobs to private object storage with signed URLs before removing the API payload limit; the card and study data model is already separated enough to support that migration.
+
+Create a consistent SQLite backup with:
+
+```bash
+npm run backup:db
+```
+
+The backup uses SQLite `VACUUM INTO` so WAL data is included safely.
 
 ## Build
 
@@ -79,3 +93,11 @@ The AIT build also runs the version generator automatically. To build the client
 ```bash
 npm --prefix ait-client run build
 ```
+
+Run the production readiness checks:
+
+```bash
+npm run qa
+```
+
+`qa` builds the AIT bundle, checks the API syntax, and runs an API health smoke test.

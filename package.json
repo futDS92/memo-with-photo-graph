@@ -7,6 +7,8 @@
     "build": "npm --prefix ait-client run build",
     "preview": "npm --prefix ait-client run preview",
     "start:api": "node server.mjs",
+    "qa": "npm run build && node --check server.mjs && node scripts/smoke-api.mjs",
+    "backup:db": "node scripts/backup-db.mjs",
     "format": "prettier --write ait-client/src ait-client/index.html server.mjs"
   },
   "dependencies": {

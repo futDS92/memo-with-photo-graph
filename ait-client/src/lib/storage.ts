@@ -358,3 +358,13 @@ export async function clearLocalState(): Promise<void> {
     request.onerror = () => reject(request.error);
   });
 }
+
+export async function logoutFromAccount(): Promise<void> {
+  const response = await fetch(`${API_STATE_URL.replace(/\/api\/state$/, "")}/api/auth/logout`, {
+    method: "POST",
+    headers: deviceHeaders(),
+    credentials: "include",
+  });
+  if (!response.ok) throw new Error(`Logout failed: ${response.status}`);
+  await clearLocalState();
+}
