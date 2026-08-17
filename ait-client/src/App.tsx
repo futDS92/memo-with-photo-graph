@@ -666,7 +666,7 @@ export function App() {
         if (!mounted) return null;
         const hydrated = normalizeWorkspace(localizeSeedCards(remote || local));
         setState(hydrated);
-        const firstProject = hydrated.projects?.[0];
+        const firstProject = hydrated.projects?.find((project) => project.id === defaultProject.id) || hydrated.projects?.[0];
         setCurrentProjectId(firstProject?.id || defaultProject.id);
         setGraphNodeOffsets(firstProject?.mapPositions || {});
         setGraphPan(firstProject?.mapPan || { x: 0, y: 0 });
