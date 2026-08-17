@@ -1346,6 +1346,102 @@ button {
   marker-end: url(#graph-arrow);
   stroke-linecap: round;
 }
+.graph-canvas {
+  min-height: 390px;
+  overflow: hidden;
+  isolation: isolate;
+  border: 1px solid #263242;
+  background: #101821;
+}
+.graph-canvas-grid {
+  position: absolute;
+  inset: 0;
+  opacity: 0.42;
+  background-image: radial-gradient(circle, #718096 1px, transparent 1px);
+  background-size: 22px 22px;
+  transform: translate(var(--graph-pan-x, 0px), var(--graph-pan-y, 0px)) scale(var(--graph-zoom, 1));
+  transform-origin: center;
+}
+.graph-map {
+  position: relative;
+  z-index: 1;
+  height: 390px !important;
+  transform: translate(var(--graph-pan-x, 0px), var(--graph-pan-y, 0px)) scale(var(--graph-zoom, 1)) !important;
+}
+.graph-edge {
+  marker-end: none !important;
+  stroke: #52657c !important;
+  stroke-width: 1.5 !important;
+  opacity: 0.82;
+  transition: opacity 0.18s, stroke 0.18s;
+}
+.graph-edge.active {
+  stroke: #76aaf7 !important;
+}
+.graph-edge.dim {
+  opacity: 0.16;
+}
+.graph-node {
+  cursor: pointer;
+  outline: none;
+  transition: opacity 0.18s;
+}
+.graph-node.active {
+  opacity: 1;
+}
+.graph-node.dim {
+  opacity: 0.2;
+}
+.graph-node-halo {
+  fill: #3182f6;
+  fill-opacity: 0.1;
+  stroke: #5f91dc;
+  stroke-width: 1.5;
+  stroke-opacity: 0.72;
+}
+.graph-node-dot {
+  fill: #17212b;
+  stroke: #8ab4ff;
+  stroke-width: 2;
+}
+.graph-node.focused .graph-node-halo {
+  fill: #3182f6;
+  fill-opacity: 0.28;
+  stroke: #f5b84b;
+  stroke-width: 2;
+}
+.graph-node.focused .graph-node-dot {
+  stroke: #f5b84b;
+}
+.graph-node-label {
+  fill: #dbe8ff !important;
+  font-size: 13px !important;
+  font-weight: 700;
+  paint-order: stroke;
+  stroke: #101821;
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+.graph-focus-reset {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 3;
+  padding: 8px 11px;
+  border: 1px solid #3a4a60;
+  border-radius: 999px;
+  color: #e8f1ff;
+  background: rgba(23, 33, 43, 0.9);
+  font-size: 11px;
+  font-weight: 700;
+}
+.graph-page .graph-intro {
+  margin-bottom: 12px;
+}
+.graph-page .graph-editor,
+.graph-page .relation-list > div {
+  border: 1px solid var(--line);
+}
 .account-button {
   color: var(--blue);
 }

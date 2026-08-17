@@ -181,6 +181,50 @@ function isValidImportedState(value: unknown): value is AppState {
   );
 }
 
+function graphLayout(cards: Word[], relations: AppState["relations"]) {
+  const positions = cards.map((card, index) => {
+    const angle = (index / Math.max(cards.length, 1)) * Math.PI * 2 - Math.PI / 2;
+    const radius = cards.length <= 3 ? 86 : 168;
+    return { id: card.id, x: 360 + Math.cos(angle) * radius, y: 260 + Math.sin(angle) * radius * 0.72 };
+  });
+  const positionMap = new Map(positions.map((position) => [position.id, position]));
+  const edges = relations.filter((relation) => positionMap.has(relation.fromWordId) && positionMap.has(relation.toWordId));
+  for (let iteration = 0; iteration < 18; iteration += 1) {
+    const forces = positions.map(() => ({ x: 0, y: 0 }));
+    positions.forEach((from, fromIndex) => {
+      positions.forEach((to, toIndex) => {
+        if (fromIndex === toIndex) return;
+        const dx = from.x - to.x;
+        const dy = from.y - to.y;
+        const distance = Math.max(30, Math.hypot(dx, dy));
+        const force = 720 / (distance * distance);
+        forces[fromIndex].x += (dx / distance) * force;
+        forces[fromIndex].y += (dy / distance) * force;
+      });
+    });
+    edges.forEach((edge) => {
+      const fromIndex = positions.findIndex((position) => position.id === edge.fromWordId);
+      const toIndex = positions.findIndex((position) => position.id === edge.toWordId);
+      if (fromIndex < 0 || toIndex < 0) return;
+      const from = positions[fromIndex];
+      const to = positions[toIndex];
+      const dx = to.x - from.x;
+      const dy = to.y - from.y;
+      const distance = Math.max(1, Math.hypot(dx, dy));
+      const force = Math.min(1.1, (distance - 150) / 900);
+      forces[fromIndex].x += (dx / distance) * force;
+      forces[fromIndex].y += (dy / distance) * force;
+      forces[toIndex].x -= (dx / distance) * force;
+      forces[toIndex].y -= (dy / distance) * force;
+    });
+    positions.forEach((position, index) => {
+      position.x = Math.max(58, Math.min(662, position.x + forces[index].x * 11));
+      position.y = Math.max(54, Math.min(466, position.y + forces[index].y * 11));
+    });
+  }
+  return positionMap;
+}
+
 const koreanUi: Record<string, string> = {
   Home: "홈",
   Study: "학습",
@@ -396,6 +440,17 @@ export function App() {
     });
     return base.filter((card) => connected.has(card.id)).slice(0, 12);
   }, [cards, graphFocusId, graphSubject, state.relations]);
+  const graphPositions = useMemo(() => graphLayout(graphCards, state.relations), [graphCards, state.relations]);
+  const graphNeighbors = useMemo(() => {
+    const neighbors = new Set<string>();
+    if (graphFocusId === "all") return neighbors;
+    neighbors.add(graphFocusId);
+    state.relations.forEach((relation) => {
+      if (relation.fromWordId === graphFocusId) neighbors.add(relation.toWordId);
+      if (relation.toWordId === graphFocusId) neighbors.add(relation.fromWordId);
+    });
+    return neighbors;
+  }, [graphFocusId, state.relations]);
   const totalAttempts = cards.reduce(
     (sum, card) => sum + (card.correctCount || 0) + (card.incorrectCount || 0),
     0,
@@ -1397,59 +1452,44 @@ export function App() {
           </div>
           <p className="graph-intro">Connect concepts to see how your syllabus fits together.</p>
           <div className="graph-canvas">
-            <svg viewBox="0 0 360 260" role="img" aria-label="Knowledge graph">
+            <div className="graph-canvas-grid" aria-hidden="true" />
+            <svg className="graph-map" viewBox="0 0 720 520" role="img" aria-label="Knowledge graph">
               {state.relations.map((relation) => {
-                const fromIndex = graphCards.findIndex((card) => card.id === relation.fromWordId);
-                const toIndex = graphCards.findIndex((card) => card.id === relation.toWordId);
-                if (fromIndex < 0 || toIndex < 0) return null;
-                const fromAngle =
-                  (fromIndex / Math.max(graphCards.length, 1)) * Math.PI * 2 - Math.PI / 2;
-                const toAngle =
-                  (toIndex / Math.max(graphCards.length, 1)) * Math.PI * 2 - Math.PI / 2;
-                const fx = 180 + Math.cos(fromAngle) * 102;
-                const fy = 130 + Math.sin(fromAngle) * 78;
-                const tx = 180 + Math.cos(toAngle) * 102;
-                const ty = 130 + Math.sin(toAngle) * 78;
-                return <line key={relation.id} x1={fx} y1={fy} x2={tx} y2={ty} />;
+                const from = graphPositions.get(relation.fromWordId);
+                const to = graphPositions.get(relation.toWordId);
+                if (!from || !to) return null;
+                const active = graphFocusId === "all" || (graphNeighbors.has(relation.fromWordId) && graphNeighbors.has(relation.toWordId));
+                return <line className={active ? "graph-edge active" : "graph-edge dim"} key={relation.id} x1={from.x} y1={from.y} x2={to.x} y2={to.y} />;
               })}
-              {graphCards.map((card, index) => {
-                const angle = (index / Math.max(graphCards.length, 1)) * Math.PI * 2 - Math.PI / 2;
-                const x = 180 + Math.cos(angle) * 102;
-                const y = 130 + Math.sin(angle) * 78;
+              {graphCards.map((card) => {
+                const position = graphPositions.get(card.id);
+                if (!position) return null;
+                const active = graphFocusId === "all" || graphNeighbors.has(card.id);
+                const focused = graphFocusId === card.id;
                 return (
                   <g
+                    className={`graph-node ${active ? "active" : "dim"} ${focused ? "focused" : ""}`}
                     key={card.id}
                     role="button"
                     tabIndex={0}
-                    transform={`translate(${x} ${y})`}
-                    onClick={() => {
+                    transform={`translate(${position.x} ${position.y})`}
+                    aria-label={`${card.term} 개념 노드`}
+                    onClick={() => setGraphFocusId(card.id)}
+                    onDoubleClick={() => {
                       setSelectedId(card.id);
                       setSheet("detail");
                     }}
                     onKeyDown={(event) => {
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
-                        setSelectedId(card.id);
-                        setSheet("detail");
+                        setGraphFocusId(card.id);
                       }
                     }}
                   >
-                    <circle r="23" />
-                    {card.photo && (
-                      <image
-                        href={card.photo}
-                        x="-19"
-                        y="-19"
-                        width="38"
-                        height="38"
-                        preserveAspectRatio="xMidYMid slice"
-                        clipPath="circle(19px at 19px 19px)"
-                      />
-                    )}
-                    <text y="34">
-                      {card.term.slice(0, 10)}
-                      {card.term.length > 10 ? "…" : ""}
-                    </text>
+                    <circle className="graph-node-halo" r={focused ? 31 : 25} />
+                    <circle className="graph-node-dot" r={focused ? 20 : 16} />
+                    {card.photo && <image href={card.photo} x={focused ? -15 : -11} y={focused ? -15 : -11} width={focused ? 30 : 22} height={focused ? 30 : 22} preserveAspectRatio="xMidYMid slice" clipPath={`circle(${focused ? 15 : 11}px at ${focused ? 15 : 11}px ${focused ? 15 : 11}px)`} />}
+                    <text className="graph-node-label" y="39">{card.term.slice(0, 16)}{card.term.length > 16 ? "…" : ""}</text>
                   </g>
                 );
               })}
@@ -1461,6 +1501,11 @@ export function App() {
               <small className="graph-overflow">
                 Showing first {graphCards.length} cards. All connections remain available below.
               </small>
+            )}
+            {graphFocusId !== "all" && (
+              <button className="graph-focus-reset" type="button" onClick={() => setGraphFocusId("all")}>
+                전체 보기
+              </button>
             )}
           </div>
           <div className="graph-editor">
