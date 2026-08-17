@@ -23,6 +23,7 @@ database.exec(`
   CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT UNIQUE, password_hash TEXT, is_anonymous INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires_at TEXT NOT NULL, FOREIGN KEY(user_id) REFERENCES users(id));
   CREATE TABLE IF NOT EXISTS user_states (user_id TEXT PRIMARY KEY, projects_json TEXT NOT NULL DEFAULT '[]', words_json TEXT NOT NULL, relations_json TEXT NOT NULL, review_log_json TEXT NOT NULL DEFAULT '[]', updated_at TEXT NOT NULL, FOREIGN KEY(user_id) REFERENCES users(id));
+  CREATE TABLE IF NOT EXISTS ranking_profiles (user_id TEXT PRIMARY KEY, nickname TEXT NOT NULL, opted_in INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL, FOREIGN KEY(user_id) REFERENCES users(id));
 `);
 try {
   database.exec("ALTER TABLE user_states ADD COLUMN projects_json TEXT NOT NULL DEFAULT '[]'");
@@ -275,6 +276,60 @@ function writeUserState(userId, state) {
   return { ...state, updatedAt, schemaVersion: 2 };
 }
 
+function weekStart() {
+  const date = new Date();
+  const day = date.getUTCDay();
+  date.setUTCDate(date.getUTCDate() - (day === 0 ? 6 : day - 1));
+  date.setUTCHours(0, 0, 0, 0);
+  return date.toISOString();
+}
+
+function rankingStats(state) {
+  const start = weekStart();
+  const reviews = (state.reviewLog || []).filter((event) => event.date >= start.slice(0, 10));
+  const correct = reviews.filter((event) => event.correct).length;
+  const mapLinks = Array.isArray(state.relations) ? state.relations.length : 0;
+  const studyDates = new Set((state.reviewLog || []).map((event) => event.date));
+  let streak = 0;
+  const cursor = new Date();
+  while (studyDates.has(cursor.toISOString().slice(0, 10))) {
+    streak += 1;
+    cursor.setUTCDate(cursor.getUTCDate() - 1);
+  }
+  return {
+    reviewCount: reviews.length,
+    accuracy: reviews.length ? Math.round((correct / reviews.length) * 100) : 0,
+    streak,
+    cardCount: Array.isArray(state.words) ? state.words.length : 0,
+    mapLinks,
+    score: reviews.length * 10 + correct * 5 + mapLinks * 2 + streak * 20,
+  };
+}
+
+async function getRanking(userId) {
+  const profiles = database
+    .prepare("SELECT user_id, nickname FROM ranking_profiles WHERE opted_in = 1 ORDER BY updated_at DESC")
+    .all();
+  const entries = [];
+  for (const profile of profiles) {
+    const state = await getUserState(profile.user_id);
+    entries.push({ userId: profile.user_id, nickname: profile.nickname, ...rankingStats(state) });
+  }
+  entries.sort((a, b) => b.score - a.score || b.accuracy - a.accuracy || a.nickname.localeCompare(b.nickname));
+  const ranked = entries.map((entry, index) => ({
+    rank: index + 1,
+    nickname: entry.nickname,
+    score: entry.score,
+    reviewCount: entry.reviewCount,
+    accuracy: entry.accuracy,
+    streak: entry.streak,
+    cardCount: entry.cardCount,
+    mapLinks: entry.mapLinks,
+    isMe: entry.userId === userId,
+  }));
+  return { weekStart: weekStart().slice(0, 10), entries: ranked.slice(0, 50), me: ranked.find((entry) => entry.isMe) || null };
+}
+
 async function getState() {
   const existing = await readJsonFile(statePath, null);
   if (
@@ -376,6 +431,33 @@ const server = createServer(async (req, res) => {
 
     if (url.pathname === "/api/health") {
       sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    if (url.pathname === "/api/ranking" && req.method === "GET") {
+      const user = getUserFromRequest(req, res, true);
+      sendJson(res, 200, await getRanking(user.id));
+      return;
+    }
+
+    if (url.pathname === "/api/ranking" && req.method === "POST") {
+      let payload;
+      try {
+        payload = await readRequestJson(req);
+      } catch {
+        sendJson(res, 400, { error: "Request body must be valid JSON" });
+        return;
+      }
+      const nickname = String(payload.nickname || "").trim().slice(0, 20);
+      if (nickname.length < 2 || typeof payload.optedIn !== "boolean") {
+        sendJson(res, 400, { error: "A nickname and participation choice are required" });
+        return;
+      }
+      const user = getUserFromRequest(req, res, true);
+      database
+        .prepare("INSERT INTO ranking_profiles (user_id, nickname, opted_in, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET nickname = excluded.nickname, opted_in = excluded.opted_in, updated_at = excluded.updated_at")
+        .run(user.id, nickname, payload.optedIn ? 1 : 0, new Date().toISOString());
+      sendJson(res, 200, await getRanking(user.id));
       return;
     }
 

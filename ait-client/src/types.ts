@@ -35,6 +35,24 @@ export type ReviewEvent = {
   correct: boolean;
 };
 
+export type RankingEntry = {
+  rank: number;
+  nickname: string;
+  score: number;
+  reviewCount: number;
+  accuracy: number;
+  streak: number;
+  cardCount: number;
+  mapLinks: number;
+  isMe?: boolean;
+};
+
+export type RankingResponse = {
+  weekStart: string;
+  entries: RankingEntry[];
+  me: RankingEntry | null;
+};
+
 export type RelationType =
   | "hypernym"
   | "hyponym"

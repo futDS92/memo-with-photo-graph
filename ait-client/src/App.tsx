@@ -4,10 +4,19 @@ import { defaultProject, seedState } from "./data/seed";
 import {
   hydrateStateFromServer,
   loadLocalStateAsync,
+  loadRanking,
   saveLocalState,
+  saveRankingProfile,
   syncStateToServer,
 } from "./lib/storage";
-import { relationTypes, type AppState, type Project, type RelationType, type Word } from "./types";
+import {
+  relationTypes,
+  type AppState,
+  type Project,
+  type RankingResponse,
+  type RelationType,
+  type Word,
+} from "./types";
 
 type View = "home" | "decks" | "study" | "mistakes" | "graph" | "stats" | "settings";
 type StudyMode = "due" | "mistakes";
@@ -440,6 +449,15 @@ export function App() {
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState(false);
   const [syncTick, setSyncTick] = useState(0);
+  const [ranking, setRanking] = useState<RankingResponse | null>(null);
+  const [rankingNickname, setRankingNickname] = useState(
+    () => localStorage.getItem("graphflash.ranking.nickname") || "",
+  );
+  const [rankingOptedIn, setRankingOptedIn] = useState(
+    () => localStorage.getItem("graphflash.ranking.opted-in") === "true",
+  );
+  const [rankingLoading, setRankingLoading] = useState(false);
+  const [rankingError, setRankingError] = useState(false);
   const [nowTick, setNowTick] = useState(0);
   const [selectedChoice, setSelectedChoice] = useState<string | null>(null);
   const [relationFrom, setRelationFrom] = useState("");
@@ -576,6 +594,40 @@ export function App() {
   };
   const askConfirm = (message: string, action: () => void) =>
     setConfirmRequest({ message, action });
+  const updateRankingProfile = async () => {
+    const nickname = rankingNickname.trim();
+    if (nickname.length < 2) {
+      notify("닉네임을 2글자 이상 입력해주세요");
+      return;
+    }
+    setRankingLoading(true);
+    try {
+      const result = await saveRankingProfile(nickname, rankingOptedIn);
+      localStorage.setItem("graphflash.ranking.nickname", nickname);
+      localStorage.setItem("graphflash.ranking.opted-in", String(rankingOptedIn));
+      setRanking(result);
+      setRankingError(false);
+      notify(rankingOptedIn ? "랭킹 참여를 시작했어요" : "랭킹 참여를 해제했어요");
+    } catch {
+      setRankingError(true);
+      notify("랭킹을 저장하지 못했어요");
+    } finally {
+      setRankingLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (view !== "stats") return;
+    setRankingLoading(true);
+    loadRanking()
+      .then((result) => {
+        setRanking(result);
+        setRankingError(false);
+      })
+      .catch(() => setRankingError(true))
+      .finally(() => setRankingLoading(false));
+  }, [view, syncTick, rankingOptedIn]);
+
   const focusGraphNode = (id: string) => {
     setGraphFocusId(id);
     setGraphPreviewId(id === "all" ? null : id);
@@ -1253,6 +1305,52 @@ export function App() {
               <small>아직 오답 기록이 없어요.</small>
             )}
           </div>
+          <section className="ranking-panel" aria-labelledby="ranking-title">
+            <div className="ranking-head">
+              <div>
+                <strong id="ranking-title">주간 랭킹</strong>
+                <small>이번 주 학습 기록으로 비교해요</small>
+              </div>
+              {ranking?.me && <b>내 순위 {ranking.me.rank}위</b>}
+            </div>
+            <div className="ranking-profile">
+              <label>
+                닉네임
+                <input
+                  value={rankingNickname}
+                  maxLength={20}
+                  onChange={(event) => setRankingNickname(event.target.value)}
+                  placeholder="예: 데이터마스터"
+                />
+              </label>
+              <label className="ranking-consent">
+                <input
+                  type="checkbox"
+                  checked={rankingOptedIn}
+                  onChange={(event) => setRankingOptedIn(event.target.checked)}
+                />
+                <span>익명 닉네임으로 주간 랭킹에 참여할게요</span>
+              </label>
+              <button type="button" onClick={updateRankingProfile} disabled={rankingLoading}>
+                {rankingLoading ? "불러오는 중" : rankingOptedIn ? "랭킹 업데이트" : "참여 설정 저장"}
+              </button>
+            </div>
+            {rankingError ? (
+              <p className="ranking-empty">랭킹 서버에 연결할 수 없어요. 학습 기록은 안전하게 기기에 저장되어 있어요.</p>
+            ) : ranking?.entries.length ? (
+              <div className="ranking-list">
+                {ranking.entries.slice(0, 10).map((entry) => (
+                  <div className={entry.isMe ? "is-me" : ""} key={`${entry.rank}-${entry.nickname}`}>
+                    <strong>{entry.rank}</strong>
+                    <span>{entry.nickname}{entry.isMe ? " (나)" : ""}</span>
+                    <small>{entry.score}점 · {entry.reviewCount}회 학습</small>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="ranking-empty">참여자가 생기면 이곳에 주간 랭킹이 표시돼요.</p>
+            )}
+          </section>
         </section>
       )}
       {view === "settings" && (

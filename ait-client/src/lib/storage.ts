@@ -1,4 +1,4 @@
-import type { AppState } from "../types";
+import type { AppState, RankingResponse } from "../types";
 import { seedState } from "../data/seed";
 import { storageKeys } from "../types";
 
@@ -280,4 +280,27 @@ export async function syncStateToServer(state: AppState): Promise<void> {
     savePendingSync(state);
     throw error;
   }
+}
+
+export async function loadRanking(): Promise<RankingResponse> {
+  const response = await fetch(`${API_STATE_URL.replace(/\/api\/state$/, "")}/api/ranking`, {
+    cache: "no-store",
+    credentials: "include",
+  });
+  if (!response.ok) throw new Error(`Ranking failed: ${response.status}`);
+  return (await response.json()) as RankingResponse;
+}
+
+export async function saveRankingProfile(
+  nickname: string,
+  optedIn: boolean,
+): Promise<RankingResponse> {
+  const response = await fetch(`${API_STATE_URL.replace(/\/api\/state$/, "")}/api/ranking`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ nickname, optedIn }),
+  });
+  if (!response.ok) throw new Error(`Ranking profile failed: ${response.status}`);
+  return (await response.json()) as RankingResponse;
 }

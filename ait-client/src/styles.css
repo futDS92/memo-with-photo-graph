@@ -1402,6 +1402,121 @@ button {
   color: var(--orange);
   font-size: 10px;
 }
+.ranking-panel {
+  display: grid;
+  gap: 14px;
+  margin-top: 12px;
+  padding: 16px;
+  border: 1px solid #dbe8ff;
+  border-radius: 18px;
+  background: linear-gradient(145deg, #f4f8ff, #fff);
+}
+.ranking-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ranking-head > div {
+  display: grid;
+  gap: 4px;
+}
+.ranking-head strong {
+  font-size: 15px;
+}
+.ranking-head small,
+.ranking-head b {
+  color: var(--muted);
+  font-size: 10px;
+}
+.ranking-head b {
+  color: var(--blue);
+  white-space: nowrap;
+}
+.ranking-profile {
+  display: grid;
+  gap: 9px;
+}
+.ranking-profile > label:first-child {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+.ranking-profile input:not([type="checkbox"]) {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  outline: 0;
+  background: var(--surface);
+  font-size: 12px;
+}
+.ranking-profile input:not([type="checkbox"]):focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px var(--blue-soft);
+}
+.ranking-consent {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.ranking-consent input {
+  accent-color: var(--blue);
+}
+.ranking-profile > button {
+  min-height: 40px;
+  border-radius: 10px;
+  color: #fff;
+  background: var(--blue);
+  font-size: 11px;
+  font-weight: 700;
+}
+.ranking-profile > button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+.ranking-list {
+  display: grid;
+  gap: 5px;
+}
+.ranking-list > div {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 11px;
+}
+.ranking-list > div.is-me {
+  color: var(--blue);
+  background: var(--blue-soft);
+}
+.ranking-list strong {
+  text-align: center;
+}
+.ranking-list span {
+  overflow: hidden;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ranking-list small {
+  color: var(--muted);
+  font-size: 9px;
+  white-space: nowrap;
+}
+.ranking-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
 .stats-subjects > strong {
   font-size: 15px;
 }
