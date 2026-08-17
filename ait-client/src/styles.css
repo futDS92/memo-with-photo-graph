@@ -1114,6 +1114,11 @@ button {
   padding: 9px !important;
   background: var(--blue-soft) !important;
 }
+.photo-input > span { color: #4b5560; font-size: 12px; font-weight: 700; }
+.photo-source-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 7px; }
+.photo-source-row label { display: grid; place-items: center; min-height: 44px; padding: 9px 8px; border: 1px dashed #b8d0f7; border-radius: 11px; color: var(--blue); background: var(--blue-soft); font-size: 11px; font-weight: 750; text-align: center; }
+.photo-source-row label:focus-within { border-style: solid; box-shadow: 0 0 0 3px rgba(49,130,246,.1); }
+.photo-source-row input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
 .detail-photo {
   display: block;
   width: 100%;

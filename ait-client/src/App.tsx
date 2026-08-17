@@ -981,10 +981,19 @@ export function App() {
                 정답
                 <textarea name="answer" rows={4} defaultValue={selected.definition} required />
               </label>
-              <label className="photo-input">
-                사진
-                <input name="photo" type="file" accept="image/*" />
-              </label>
+              <div className="photo-input">
+                <span>사진 추가</span>
+                <div className="photo-source-row">
+                  <label>
+                    보관함에서 선택
+                    <input name="photo" type="file" accept="image/*" />
+                  </label>
+                  <label>
+                    카메라로 촬영
+                    <input name="photo" type="file" accept="image/*" capture="environment" />
+                  </label>
+                </div>
+              </div>
               <div className="form-grid">
                 <label>
                   과목
@@ -1807,10 +1816,19 @@ export function App() {
                   required
                 />
               </label>
-              <label className="photo-input">
-                사진
-                <input name="photo" type="file" accept="image/*" />
-              </label>
+              <div className="photo-input">
+                <span>사진 바꾸기</span>
+                <div className="photo-source-row">
+                  <label>
+                    보관함에서 선택
+                    <input name="photo" type="file" accept="image/*" />
+                  </label>
+                  <label>
+                    카메라로 촬영
+                    <input name="photo" type="file" accept="image/*" capture="environment" />
+                  </label>
+                </div>
+              </div>
               <label className="memory-first">
                 Memory note
                 <textarea
