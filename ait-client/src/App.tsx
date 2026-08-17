@@ -226,9 +226,6 @@ function graphLayout(cards: Word[], relations: AppState["relations"]) {
 }
 
 const koreanUi: Record<string, string> = {
-  Home: "홈",
-  Study: "학습",
-  Map: "맵",
   All: "전체",
   Other: "기타",
   concept: "개념",
@@ -261,7 +258,6 @@ const koreanUi: Record<string, string> = {
   "Where do you want to start?": "어디부터 시작할까요?",
   "View all": "전체 보기",
   "MY DECKS": "내 카드",
-  Cards: "카드",
   "Search questions or concepts": "질문·개념 검색",
   "No cards found": "카드가 없어요",
   "Try another search or subject.": "검색어나 과목을 바꿔 보세요.",
