@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { TossAds } from "@apps-in-toss/web-framework";
 import { defaultProject, seedState } from "./data/seed";
 import {
   hydrateStateFromServer,
@@ -10,6 +11,64 @@ import { relationTypes, type AppState, type Project, type RelationType, type Wor
 
 type View = "home" | "decks" | "study" | "mistakes" | "graph" | "stats" | "settings";
 type StudyMode = "due" | "mistakes";
+const TOSS_AD_GROUP_ID = import.meta.env.VITE_TOSS_AD_GROUP_ID || "";
+let tossAdsInitialization: Promise<void> | null = null;
+
+function initializeTossAds() {
+  if (!tossAdsInitialization) {
+    tossAdsInitialization = new Promise((resolve, reject) => {
+      TossAds.initialize({
+        callbacks: {
+          onInitialized: () => resolve(),
+          onInitializationFailed: () => reject(new Error("Toss Ads initialization failed")),
+        },
+      });
+    });
+  }
+  return tossAdsInitialization;
+}
+
+function BannerAd() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [status, setStatus] = useState<"idle" | "loading" | "shown" | "empty">("idle");
+  useEffect(() => {
+    if (!TOSS_AD_GROUP_ID || !TossAds.initialize.isSupported() || !TossAds.attachBanner.isSupported()) {
+      setStatus("empty");
+      return;
+    }
+    setStatus("loading");
+    let attached: { destroy: () => void } | undefined;
+    let active = true;
+    const attach = () => {
+      if (!active || !containerRef.current) return;
+      try {
+        attached = TossAds.attachBanner(TOSS_AD_GROUP_ID, containerRef.current, {
+          theme: "light",
+          tone: "grey",
+          variant: "expanded",
+          callbacks: {
+            onAdRendered: () => setStatus("shown"),
+            onNoFill: () => setStatus("empty"),
+            onAdFailedToRender: () => setStatus("empty"),
+          },
+        });
+      } catch {
+        setStatus("empty");
+      }
+    };
+    initializeTossAds().then(attach).catch(() => active && setStatus("empty"));
+    return () => {
+      active = false;
+      attached?.destroy();
+    };
+  }, []);
+  return (
+    <section className={`banner-ad ${status === "shown" ? "has-ad" : "no-ad"}`} aria-label="광고">
+      <div ref={containerRef} className="banner-ad-slot" />
+      {status !== "shown" && <span>{status === "loading" ? "광고 준비 중" : "광고 없음"}</span>}
+    </section>
+  );
+}
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -1276,29 +1335,6 @@ export function App() {
                 </option>
               ))}
           </select>
-          <div className="graph-zoom">
-            <button className="graph-history-button" type="button" onClick={() => navigateGraphHistory(-1)} disabled={graphHistoryIndex === 0} aria-label="이전 맵 위치">
-              ‹
-            </button>
-            <button className="graph-history-button" type="button" onClick={() => navigateGraphHistory(1)} disabled={graphHistoryIndex >= graphHistory.length - 1} aria-label="다음 맵 위치">
-              ›
-            </button>
-            <button
-              type="button"
-              onClick={() => setGraphZoom((zoom) => Math.max(0.8, Number((zoom - 0.1).toFixed(1))))}
-              aria-label="축소"
-            >
-              −
-            </button>
-            <span>{Math.round(graphZoom * 100)}%</span>
-            <button
-              type="button"
-              onClick={() => setGraphZoom((zoom) => Math.min(1.4, Number((zoom + 0.1).toFixed(1))))}
-              aria-label="확대"
-            >
-              ＋
-            </button>
-          </div>
           <svg className="graph-markers" aria-hidden="true">
             <defs>
               <marker
@@ -1397,6 +1433,7 @@ export function App() {
               <small>Accuracy</small>
             </button>
           </div>
+          <BannerAd />
           <div className="study-section-head">
             <div>
               <p>Subjects</p>
@@ -1783,6 +1820,43 @@ export function App() {
                 );
               })}
             </svg>
+            <div className="graph-canvas-tools" aria-label="맵 탐색 도구">
+              <button
+                type="button"
+                onClick={() => navigateGraphHistory(-1)}
+                disabled={graphHistoryIndex === 0}
+                aria-label="이전 맵 위치"
+                title="이전 맵 위치"
+              >
+                ‹
+              </button>
+              <button
+                type="button"
+                onClick={() => navigateGraphHistory(1)}
+                disabled={graphHistoryIndex >= graphHistory.length - 1}
+                aria-label="다음 맵 위치"
+                title="다음 맵 위치"
+              >
+                ›
+              </button>
+              <span aria-live="polite">{Math.round(graphZoom * 100)}%</span>
+              <button
+                type="button"
+                onClick={() => setGraphZoom((zoom) => Math.max(0.8, Number((zoom - 0.1).toFixed(1))))}
+                aria-label="맵 축소"
+                title="축소"
+              >
+                −
+              </button>
+              <button
+                type="button"
+                onClick={() => setGraphZoom((zoom) => Math.min(1.4, Number((zoom + 0.1).toFixed(1))))}
+                aria-label="맵 확대"
+                title="확대"
+              >
+                +
+              </button>
+            </div>
             {!cards.length && (
               <div className="graph-empty">Add cards to start your knowledge map.</div>
             )}

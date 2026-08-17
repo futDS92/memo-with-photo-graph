@@ -41,10 +41,13 @@ The GitHub Pages client is static, so deploy `server.mjs` separately and set the
 
 ```bash
 VITE_API_STATE_URL=https://api.example.com/api/state
+VITE_TOSS_AD_GROUP_ID=your-console-ad-group-id
 ```
 
 Set `CLIENT_ORIGIN` to the Pages origin. For HTTPS cross-origin cookies also set `COOKIE_SECURE=true`.
 The API stores its SQLite database in `data/study-deck.sqlite`; back up that directory in production.
+
+`VITE_TOSS_AD_GROUP_ID` is the banner ad group ID issued by the Apps-in-Toss console. Toss Ads can mediate Toss inventory and AdMob inventory according to the console configuration. If the ID is missing, the runtime is unsupported, initialization fails, or there is no fill, GraphFlash shows a compact `광고 없음` state instead of leaving a broken blank slot. Use `ait-ad-test-banner-id` only for local/test builds.
 
 ## Build
 

@@ -193,6 +193,35 @@ button {
   color: var(--muted);
   font-size: 11px;
 }
+.banner-ad {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 52px;
+  margin-top: 12px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.7);
+  font-size: 11px;
+}
+.banner-ad-slot {
+  width: 100%;
+  min-height: 52px;
+}
+.banner-ad.no-ad .banner-ad-slot {
+  display: none;
+}
+.banner-ad.has-ad {
+  min-height: 90px;
+  border-color: transparent;
+  background: transparent;
+}
+.banner-ad.has-ad .banner-ad-slot {
+  min-height: 90px;
+}
 .study-section-head {
   display: flex;
   align-items: end;
@@ -1059,7 +1088,7 @@ button {
   top: 60px;
   z-index: 15;
   display: grid;
-  grid-template-columns: 1fr 1fr auto;
+  grid-template-columns: 1fr 1fr;
   gap: 6px;
   padding: 8px 0;
   background: rgba(247, 248, 250, 0.94);
@@ -1074,27 +1103,42 @@ button {
   background: var(--surface);
   font-size: 10px;
 }
-.graph-zoom {
+.graph-canvas-tools {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 3;
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 2px;
-  border-radius: 9px;
-  background: var(--surface);
-  box-shadow: var(--shadow);
+  gap: 3px;
+  padding: 4px;
+  border: 1px solid rgba(138, 180, 255, 0.18);
+  border-radius: 12px;
+  background: rgba(16, 24, 33, 0.88);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(10px);
 }
-.graph-zoom button {
+.graph-canvas-tools button {
   display: grid;
   place-items: center;
   width: 25px;
   height: 27px;
   border-radius: 7px;
   color: var(--blue);
-  background: var(--blue-soft);
-  font-size: 16px;
+  color: #dbe8ff;
+  background: #22324a;
+  font-size: 18px;
+  line-height: 1;
 }
-.graph-zoom .graph-history-button { width: 24px; color: var(--muted); background: #f4f6f8; font-size: 19px; }
-.graph-zoom .graph-history-button:disabled { cursor: default; opacity: .35; }
+.graph-canvas-tools button:hover:not(:disabled) { background: #304764; }
+.graph-canvas-tools button:disabled { cursor: default; opacity: .35; }
+.graph-canvas-tools span {
+  min-width: 38px;
+  color: #9eb7da;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
 .graph-preview { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: 10px; margin-top: 10px; padding: 10px; border: 1px solid #314257; border-radius: 14px; color: #e8f1ff; background: #17212b; }
 .graph-preview-image { display: grid; place-items: center; width: 42px; height: 42px; overflow: hidden; border-radius: 11px; color: #9ec2ff; background: #22324a; font-size: 18px; font-weight: 800; }
 .graph-preview-image img { width: 100%; height: 100%; object-fit: cover; }
@@ -1108,12 +1152,6 @@ button {
 .study-nav .study-add { width: 54px; height: 54px; margin-top: -32px; border: 5px solid var(--bg); border-radius: 50%; color: #fff; background: var(--blue); box-shadow: 0 10px 24px rgba(49,130,246,.38); }
 .study-nav .study-add .icon { width: 25px; height: 25px; stroke-width: 2.2; }
 .study-nav .study-add:active { transform: translateY(2px) scale(.96); }
-.graph-zoom span {
-  min-width: 34px;
-  color: var(--muted);
-  font-size: 9px;
-  text-align: center;
-}
 .graph-canvas svg {
   transform: scale(var(--graph-zoom, 1));
   transform-origin: center;
