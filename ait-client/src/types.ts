@@ -48,7 +48,8 @@ export type RankingEntry = {
 };
 
 export type RankingResponse = {
-  weekStart: string;
+  period: "week" | "month" | "all";
+  periodStart: string | null;
   entries: RankingEntry[];
   me: RankingEntry | null;
 };

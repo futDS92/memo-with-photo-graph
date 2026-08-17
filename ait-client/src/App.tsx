@@ -17,6 +17,17 @@ import {
   type RelationType,
   type Word,
 } from "./types";
+import {
+  answerMatches,
+  cardChapter,
+  cardSubject,
+  isDue,
+  nextDue,
+  type ReviewGrade,
+} from "./domain/study";
+import { graphColorClass, graphLayout } from "./domain/graph";
+import { localizeSeedCards, normalizeWorkspace } from "./domain/workspace";
+import { AIT_VERSION } from "./generated/build-version";
 
 type View = "home" | "decks" | "study" | "mistakes" | "graph" | "stats" | "settings";
 type StudyMode = "due" | "mistakes";
@@ -84,10 +95,6 @@ function today() {
 }
 function newId(prefix: string) {
   return `${prefix}-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
-}
-function nextDue(level: number, hard: boolean) {
-  const days = hard ? 1 : [1, 2, 4, 7, 14, 30, 60][Math.min(level, 6)];
-  return new Date(Date.now() + days * 86400000).toISOString();
 }
 function photoUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -193,83 +200,6 @@ function Icon({
   );
 }
 
-function isDue(card: Word) {
-  if (!card.reviewDueAt) return true;
-  const dueAt = new Date(card.reviewDueAt).getTime();
-  return !Number.isFinite(dueAt) || dueAt <= Date.now();
-}
-function cardSubject(card: Word) {
-  return card.pos || card.tags[0] || "Other";
-}
-function cardChapter(card: Word) {
-  return card.example || "Core Concepts";
-}
-function normalizeAnswer(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/[\s\u200b.,!?()[\]{}:;/%]+/g, "")
-    .trim();
-}
-function answerMatches(input: string, answer: string) {
-  const normalized = normalizeAnswer(input);
-  return answer.split(/[|/]/).some((item) => normalizeAnswer(item) === normalized);
-}
-function graphLayout(cards: Word[], relations: AppState["relations"]) {
-  const positions = cards.map((card, index) => {
-    const angle = (index / Math.max(cards.length, 1)) * Math.PI * 2 - Math.PI / 2;
-    const radius = cards.length <= 3 ? 86 : 168;
-    return {
-      id: card.id,
-      x: 360 + Math.cos(angle) * radius,
-      y: 260 + Math.sin(angle) * radius * 0.72,
-    };
-  });
-  const positionMap = new Map(positions.map((position) => [position.id, position]));
-  const edges = relations.filter(
-    (relation) => positionMap.has(relation.fromWordId) && positionMap.has(relation.toWordId),
-  );
-  for (let iteration = 0; iteration < 18; iteration += 1) {
-    const forces = positions.map(() => ({ x: 0, y: 0 }));
-    positions.forEach((from, fromIndex) => {
-      positions.forEach((to, toIndex) => {
-        if (fromIndex === toIndex) return;
-        const dx = from.x - to.x;
-        const dy = from.y - to.y;
-        const distance = Math.max(30, Math.hypot(dx, dy));
-        const force = 720 / (distance * distance);
-        forces[fromIndex].x += (dx / distance) * force;
-        forces[fromIndex].y += (dy / distance) * force;
-      });
-    });
-    edges.forEach((edge) => {
-      const fromIndex = positions.findIndex((position) => position.id === edge.fromWordId);
-      const toIndex = positions.findIndex((position) => position.id === edge.toWordId);
-      if (fromIndex < 0 || toIndex < 0) return;
-      const from = positions[fromIndex];
-      const to = positions[toIndex];
-      const dx = to.x - from.x;
-      const dy = to.y - from.y;
-      const distance = Math.max(1, Math.hypot(dx, dy));
-      const force = Math.min(1.1, (distance - 150) / 900);
-      forces[fromIndex].x += (dx / distance) * force;
-      forces[fromIndex].y += (dy / distance) * force;
-      forces[toIndex].x -= (dx / distance) * force;
-      forces[toIndex].y -= (dy / distance) * force;
-    });
-    positions.forEach((position, index) => {
-      position.x = Math.max(58, Math.min(662, position.x + forces[index].x * 11));
-      position.y = Math.max(54, Math.min(466, position.y + forces[index].y * 11));
-    });
-  }
-  return positionMap;
-}
-
-function graphColorClass(value: string) {
-  let hash = 0;
-  for (const character of value) hash = (hash * 31 + character.charCodeAt(0)) | 0;
-  return `graph-color-${Math.abs(hash) % 6}`;
-}
-
 const koreanUi: Record<string, string> = {
   All: "전체",
   Other: "기타",
@@ -362,45 +292,6 @@ const koreanUi: Record<string, string> = {
   "Connection added": "연결했어요",
 };
 
-function localizeSeedCards(state: AppState): AppState {
-  const seedById = new Map(seedState.words.map((card) => [card.id, card]));
-  return {
-    ...state,
-    words: state.words.map((card) => {
-      const seed = seedById.get(card.id);
-      return seed
-        ? {
-            ...card,
-            term: seed.term,
-            definition: seed.definition,
-            pos: seed.pos,
-            example: seed.example,
-            memo: seed.memo,
-            tags: seed.tags,
-            cardType: seed.cardType,
-          }
-        : card;
-    }),
-  };
-}
-function normalizeWorkspace(state: AppState): AppState {
-  const projects = state.projects?.length ? state.projects : [defaultProject];
-  const fallbackProjectId = projects[0].id;
-  const projectIds = new Set(projects.map((project) => project.id));
-  return {
-    ...state,
-    projects,
-    words: state.words.map((word) => ({
-      ...word,
-      projectId:
-        word.projectId && projectIds.has(word.projectId) ? word.projectId : fallbackProjectId,
-    })),
-    reviewLog: Array.isArray(state.reviewLog)
-      ? state.reviewLog.filter((event) => projectIds.has(state.words.find((word) => word.id === event.cardId)?.projectId || fallbackProjectId))
-      : [],
-    schemaVersion: 2,
-  };
-}
 const studySessionKey = "memo-with-photo-graph.study-session";
 function saveStudySession(session: { mode: StudyMode; ids: string[]; index: number } | null) {
   try {
@@ -443,6 +334,8 @@ export function App() {
   } | null>(null);
   const [sheet, setSheet] = useState<"add" | "detail" | "edit" | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedCardIds, setSelectedCardIds] = useState<string[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [photoOpen, setPhotoOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -458,6 +351,10 @@ export function App() {
   );
   const [rankingLoading, setRankingLoading] = useState(false);
   const [rankingError, setRankingError] = useState(false);
+  const [rankingPeriod, setRankingPeriod] = useState<"week" | "month" | "all">("week");
+  const [showOnboarding, setShowOnboarding] = useState(
+    () => localStorage.getItem("graphflash.onboarding") !== "complete",
+  );
   const [nowTick, setNowTick] = useState(0);
   const [selectedChoice, setSelectedChoice] = useState<string | null>(null);
   const [relationFrom, setRelationFrom] = useState("");
@@ -584,6 +481,11 @@ export function App() {
     .filter((card) => (card.incorrectCount || 0) > 0)
     .sort((a, b) => (b.incorrectCount || 0) - (a.incorrectCount || 0))
     .slice(0, 3);
+  const recentReviews = [...reviewLog]
+    .reverse()
+    .map((event) => ({ event, card: cards.find((card) => card.id === event.cardId) }))
+    .filter((item): item is { event: (typeof reviewLog)[number]; card: Word } => Boolean(item.card))
+    .slice(0, 5);
   const currentCard = cards.find((card) => card.id === studyIds[studyIndex]);
   const graphPreview = cards.find((card) => card.id === graphPreviewId);
 
@@ -594,6 +496,10 @@ export function App() {
   };
   const askConfirm = (message: string, action: () => void) =>
     setConfirmRequest({ message, action });
+  const finishOnboarding = () => {
+    localStorage.setItem("graphflash.onboarding", "complete");
+    setShowOnboarding(false);
+  };
   const updateRankingProfile = async () => {
     const nickname = rankingNickname.trim();
     if (nickname.length < 2) {
@@ -602,7 +508,7 @@ export function App() {
     }
     setRankingLoading(true);
     try {
-      const result = await saveRankingProfile(nickname, rankingOptedIn);
+      const result = await saveRankingProfile(nickname, rankingOptedIn, rankingPeriod);
       localStorage.setItem("graphflash.ranking.nickname", nickname);
       localStorage.setItem("graphflash.ranking.opted-in", String(rankingOptedIn));
       setRanking(result);
@@ -619,14 +525,14 @@ export function App() {
   useEffect(() => {
     if (view !== "stats") return;
     setRankingLoading(true);
-    loadRanking()
+    loadRanking(rankingPeriod)
       .then((result) => {
         setRanking(result);
         setRankingError(false);
       })
       .catch(() => setRankingError(true))
       .finally(() => setRankingLoading(false));
-  }, [view, syncTick, rankingOptedIn]);
+  }, [view, rankingPeriod, syncTick, rankingOptedIn]);
 
   const focusGraphNode = (id: string) => {
     setGraphFocusId(id);
@@ -842,11 +748,14 @@ export function App() {
     setView("study");
     saveStudySession({ mode: studyMode, ids, index: 0 });
   };
-  const gradeCard = (hard: boolean) => {
+  const gradeCard = (grade: ReviewGrade) => {
     if (!currentCard) return;
-    const level = hard
-      ? Math.max((currentCard.reviewLevel || 0) - 1, 0)
-      : (currentCard.reviewLevel || 0) + 1;
+    const level =
+      grade === "again"
+        ? Math.max((currentCard.reviewLevel || 0) - 1, 0)
+        : grade === "easy"
+          ? (currentCard.reviewLevel || 0) + 2
+          : (currentCard.reviewLevel || 0) + 1;
     const now = new Date().toISOString();
     setState((current) => ({
       ...current,
@@ -857,16 +766,16 @@ export function App() {
           ? {
               ...card,
               reviewLevel: level,
-              reviewDueAt: nextDue(level, hard),
+              reviewDueAt: nextDue(level, grade),
               lastReviewedAt: now,
-              correctCount: (card.correctCount || 0) + (hard ? 0 : 1),
-              incorrectCount: (card.incorrectCount || 0) + (hard ? 1 : 0),
+              correctCount: (card.correctCount || 0) + (grade === "again" ? 0 : 1),
+              incorrectCount: (card.incorrectCount || 0) + (grade === "again" ? 1 : 0),
             }
           : card,
       ),
       reviewLog: [
         ...(current.reviewLog || []),
-        { id: newId("review"), cardId: currentCard.id, date: today(), correct: !hard },
+        { id: newId("review"), cardId: currentCard.id, date: today(), correct: grade !== "again" },
       ].slice(-500),
     }));
     if (studyIndex + 1 >= studyIds.length) {
@@ -964,6 +873,39 @@ export function App() {
     setSelectedId(null);
     setSheet(null);
     notify("카드를 삭제했어요");
+  };
+  const deleteSelectedCards = () => {
+    if (!selectedCardIds.length) return;
+    const ids = new Set(selectedCardIds);
+    setState((current) => ({
+      ...current,
+      schemaVersion: 2,
+      updatedAt: new Date().toISOString(),
+      words: current.words.filter((card) => !ids.has(card.id)),
+      relations: current.relations.filter(
+        (relation) => !ids.has(relation.fromWordId) && !ids.has(relation.toWordId),
+      ),
+    }));
+    setStudyIds((current) => current.filter((id) => !ids.has(id)));
+    setSelectedCardIds([]);
+    setSelectionMode(false);
+    notify(`${ids.size}장의 카드를 삭제했어요`);
+  };
+  const resetCurrentProject = () => {
+    const projectId = currentProject.id;
+    setState((current) => ({
+      ...current,
+      schemaVersion: 2,
+      updatedAt: new Date().toISOString(),
+      words: current.words.filter((card) => card.projectId !== projectId),
+      relations: current.relations.filter((relation) => {
+        const from = current.words.find((card) => card.id === relation.fromWordId);
+        const to = current.words.find((card) => card.id === relation.toWordId);
+        return from?.projectId !== projectId && to?.projectId !== projectId;
+      }),
+    }));
+    setSelectedCardIds([]);
+    notify("현재 프로젝트를 초기화했어요");
   };
   const editCard = (card: Word) => {
     setEditingId(card.id);
@@ -1160,6 +1102,18 @@ export function App() {
 
   return (
     <main className="study-app">
+      {showOnboarding && (
+        <div className="onboarding-backdrop" role="dialog" aria-modal="true" aria-labelledby="onboarding-title">
+          <div className="onboarding-card">
+            <img src="./brand/graphflash-logo-3d.png" alt="" />
+            <p>PHOTO-FIRST STUDY</p>
+            <h1 id="onboarding-title">사진과 연결로<br />더 오래 기억하세요</h1>
+            <span>카드를 만들고, 맵으로 개념을 연결한 뒤 오늘 복습할 내용을 바로 시작해요.</span>
+            <button type="button" onClick={finishOnboarding}>GraphFlash 시작하기</button>
+            <button className="onboarding-skip" type="button" onClick={finishOnboarding}>다음에 볼게요</button>
+          </div>
+        </div>
+      )}
       {photoOpen && selected?.photo && (
         <div
           className="photo-lightbox"
@@ -1285,6 +1239,28 @@ export function App() {
               </div>
             ))}
           </div>
+          <div className="stats-subjects recent-list">
+            <strong>최근 학습</strong>
+            {recentReviews.length ? (
+              recentReviews.map(({ event, card }) => (
+                <button
+                  type="button"
+                  key={event.id}
+                  onClick={() => {
+                    setSelectedId(card.id);
+                    setSheet("detail");
+                  }}
+                >
+                  <span>{card.term}</span>
+                  <small className={event.correct ? "review-good" : "review-bad"}>
+                    {event.correct ? "정답" : "다시 보기"} · {event.date}
+                  </small>
+                </button>
+              ))
+            ) : (
+              <small>학습을 시작하면 최근 기록이 표시돼요.</small>
+            )}
+          </div>
           <div className="stats-subjects stats-weak-list">
             <strong>다시 볼 개념</strong>
             {weakCards.length ? (
@@ -1312,6 +1288,20 @@ export function App() {
                 <small>이번 주 학습 기록으로 비교해요</small>
               </div>
               {ranking?.me && <b>내 순위 {ranking.me.rank}위</b>}
+            </div>
+            <div className="ranking-period-tabs" role="tablist" aria-label="랭킹 기간">
+              {(["week", "month", "all"] as const).map((period) => (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={rankingPeriod === period}
+                  className={rankingPeriod === period ? "active" : ""}
+                  key={period}
+                  onClick={() => setRankingPeriod(period)}
+                >
+                  {period === "week" ? "주간" : period === "month" ? "월간" : "전체"}
+                </button>
+              ))}
             </div>
             <div className="ranking-profile">
               <label>
@@ -1360,6 +1350,9 @@ export function App() {
               <p>WORKSPACE</p>
               <h1>Settings</h1>
             </div>
+            <button className="settings-export" type="button" onClick={exportJson}>
+              Export
+            </button>
           </div>
           <div className="settings-section">
             <div className="settings-section-head">
@@ -1495,6 +1488,20 @@ export function App() {
               when the API is available.
             </small>
           </div>
+          <div className="settings-section settings-note build-version-note">
+            <strong>AIT version</strong>
+            <small>{AIT_VERSION} · 날짜 기준 자동 빌드 버전</small>
+          </div>
+          <div className="settings-section settings-danger-zone">
+            <strong>프로젝트 초기화</strong>
+            <small>현재 프로젝트의 카드·사진·연결을 모두 삭제합니다.</small>
+            <button
+              type="button"
+              onClick={() => askConfirm("현재 프로젝트를 초기화할까요?", resetCurrentProject)}
+            >
+              현재 프로젝트 비우기
+            </button>
+          </div>
         </section>
       )}
 
@@ -1555,8 +1562,7 @@ export function App() {
         <button className="study-brand brand-button" type="button" onClick={() => setView("home")} aria-label="홈으로 이동">
           <img className="study-logo" src="./brand/graphflash-logo-3d.png" alt="GraphFlash" />
           <div>
-            <strong>study deck</strong>
-            <small>Turn your syllabus into cards</small>
+            <strong>GraphFlash</strong>
           </div>
         </button>
         <label className="project-picker">
@@ -1580,14 +1586,9 @@ export function App() {
           </select>
         </label>
         <div className="data-actions">
-          <button className="data-button" type="button" onClick={exportJson}>
-            Export
-          </button>
-          <span className={`sync-pill ${syncError ? "error" : ""}`}>
-            {syncing ? "Saving" : syncError ? "Saved on device" : "Saved"}
-          </span>
-          <button className="data-button" type="button" onClick={() => setView("settings")}>
-            Settings
+          <span className={`sync-dot ${syncError ? "error" : syncing ? "saving" : ""}`} aria-label={syncing ? "저장 중" : syncError ? "기기에 저장됨" : "저장됨"} />
+          <button className="data-button settings-button" type="button" onClick={() => setView("settings")} aria-label="설정">
+            ⚙
           </button>
         </div>
       </header>
@@ -1678,9 +1679,21 @@ export function App() {
               <p>MY DECKS</p>
               <h1>Cards</h1>
             </div>
-            <button className="round-add" type="button" onClick={() => setSheet("add")}>
-              <Icon name="plus" />
-            </button>
+            <div className="deck-head-actions">
+              <button
+                className="select-toggle"
+                type="button"
+                onClick={() => {
+                  setSelectionMode((mode) => !mode);
+                  setSelectedCardIds([]);
+                }}
+              >
+                {selectionMode ? "완료" : "선택"}
+              </button>
+              <button className="round-add" type="button" onClick={() => setSheet("add")}>
+                <Icon name="plus" />
+              </button>
+            </div>
           </div>
           <label className="study-search">
             <span>⌕</span>
@@ -1702,6 +1715,20 @@ export function App() {
               </button>
             ))}
           </div>
+          {selectionMode && (
+            <div className="bulk-toolbar">
+              <span>{selectedCardIds.length}장 선택</span>
+              <button
+                type="button"
+                disabled={!selectedCardIds.length}
+                onClick={() =>
+                  askConfirm(`${selectedCardIds.length}장의 카드를 삭제할까요?`, deleteSelectedCards)
+                }
+              >
+                선택 삭제
+              </button>
+            </div>
+          )}
           <div className="card-list">
             {filteredCards.length ? (
               filteredCards.map((card) => (
@@ -1711,14 +1738,26 @@ export function App() {
                   tabIndex={0}
                   key={card.id}
                   onClick={() => {
-                    setSelectedId(card.id);
-                    setSheet("detail");
+                    if (selectionMode) {
+                      setSelectedCardIds((ids) =>
+                        ids.includes(card.id) ? ids.filter((id) => id !== card.id) : [...ids, card.id],
+                      );
+                    } else {
+                      setSelectedId(card.id);
+                      setSheet("detail");
+                    }
                   }}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault();
-                      setSelectedId(card.id);
-                      setSheet("detail");
+                      if (selectionMode) {
+                        setSelectedCardIds((ids) =>
+                          ids.includes(card.id) ? ids.filter((id) => id !== card.id) : [...ids, card.id],
+                        );
+                      } else {
+                        setSelectedId(card.id);
+                        setSheet("detail");
+                      }
                     }
                   }}
                 >
@@ -1727,6 +1766,11 @@ export function App() {
                   ) : (
                     <span className="type-mark">
                       {card.cardType === "formula" ? "ƒ" : card.cardType === "case" ? "↗" : "?"}
+                    </span>
+                  )}
+                  {selectionMode && (
+                    <span className={`card-select-mark ${selectedCardIds.includes(card.id) ? "selected" : ""}`} aria-hidden="true">
+                      {selectedCardIds.includes(card.id) ? "✓" : ""}
                     </span>
                   )}
                   <span>
@@ -1848,11 +1892,17 @@ export function App() {
               </div>
               {revealed ? (
                 <div className="grade-actions">
-                  <button className="hard" type="button" onClick={() => gradeCard(true)}>
-                    Still difficult
+                  <button className="again" type="button" onClick={() => gradeCard("again")}>
+                    다시
                   </button>
-                  <button className="known" type="button" onClick={() => gradeCard(false)}>
-                    I remembered
+                  <button className="hard" type="button" onClick={() => gradeCard("hard")}>
+                    어려움
+                  </button>
+                  <button className="known" type="button" onClick={() => gradeCard("good")}>
+                    보통
+                  </button>
+                  <button className="easy" type="button" onClick={() => gradeCard("easy")}>
+                    쉬움
                   </button>
                 </div>
               ) : currentCard.cardType !== "cloze" ? (

@@ -3,8 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build && ait build",
+    "dev": "node ../scripts/version-ait.mjs && vite",
+    "build": "node ../scripts/version-ait.mjs && vite build && ait build",
     "preview": "vite preview"
   },
   "dependencies": {

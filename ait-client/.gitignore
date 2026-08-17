@@ -3,3 +3,6 @@ dist
 .vite
 .DS_Store
 *.ait
+src/generated
+public/build-version.json
+public/.ait-version-state.json

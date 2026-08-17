@@ -282,8 +282,8 @@ export async function syncStateToServer(state: AppState): Promise<void> {
   }
 }
 
-export async function loadRanking(): Promise<RankingResponse> {
-  const response = await fetch(`${API_STATE_URL.replace(/\/api\/state$/, "")}/api/ranking`, {
+export async function loadRanking(period: "week" | "month" | "all" = "week"): Promise<RankingResponse> {
+  const response = await fetch(`${API_STATE_URL.replace(/\/api\/state$/, "")}/api/ranking?period=${period}`, {
     cache: "no-store",
     credentials: "include",
   });
@@ -294,12 +294,13 @@ export async function loadRanking(): Promise<RankingResponse> {
 export async function saveRankingProfile(
   nickname: string,
   optedIn: boolean,
+  period: "week" | "month" | "all" = "week",
 ): Promise<RankingResponse> {
   const response = await fetch(`${API_STATE_URL.replace(/\/api\/state$/, "")}/api/ranking`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     credentials: "include",
-    body: JSON.stringify({ nickname, optedIn }),
+    body: JSON.stringify({ nickname, optedIn, period }),
   });
   if (!response.ok) throw new Error(`Ranking profile failed: ${response.status}`);
   return (await response.json()) as RankingResponse;

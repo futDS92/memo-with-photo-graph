@@ -276,17 +276,23 @@ function writeUserState(userId, state) {
   return { ...state, updatedAt, schemaVersion: 2 };
 }
 
-function weekStart() {
+function periodStart(period = "week") {
+  if (period === "all") return null;
   const date = new Date();
+  if (period === "month") {
+    date.setUTCDate(1);
+    date.setUTCHours(0, 0, 0, 0);
+    return date.toISOString();
+  }
   const day = date.getUTCDay();
   date.setUTCDate(date.getUTCDate() - (day === 0 ? 6 : day - 1));
   date.setUTCHours(0, 0, 0, 0);
   return date.toISOString();
 }
 
-function rankingStats(state) {
-  const start = weekStart();
-  const reviews = (state.reviewLog || []).filter((event) => event.date >= start.slice(0, 10));
+function rankingStats(state, period = "week") {
+  const start = periodStart(period);
+  const reviews = (state.reviewLog || []).filter((event) => !start || event.date >= start.slice(0, 10));
   const correct = reviews.filter((event) => event.correct).length;
   const mapLinks = Array.isArray(state.relations) ? state.relations.length : 0;
   const studyDates = new Set((state.reviewLog || []).map((event) => event.date));
@@ -306,14 +312,14 @@ function rankingStats(state) {
   };
 }
 
-async function getRanking(userId) {
+async function getRanking(userId, period = "week") {
   const profiles = database
     .prepare("SELECT user_id, nickname FROM ranking_profiles WHERE opted_in = 1 ORDER BY updated_at DESC")
     .all();
   const entries = [];
   for (const profile of profiles) {
     const state = await getUserState(profile.user_id);
-    entries.push({ userId: profile.user_id, nickname: profile.nickname, ...rankingStats(state) });
+    entries.push({ userId: profile.user_id, nickname: profile.nickname, ...rankingStats(state, period) });
   }
   entries.sort((a, b) => b.score - a.score || b.accuracy - a.accuracy || a.nickname.localeCompare(b.nickname));
   const ranked = entries.map((entry, index) => ({
@@ -327,7 +333,7 @@ async function getRanking(userId) {
     mapLinks: entry.mapLinks,
     isMe: entry.userId === userId,
   }));
-  return { weekStart: weekStart().slice(0, 10), entries: ranked.slice(0, 50), me: ranked.find((entry) => entry.isMe) || null };
+  return { period, periodStart: periodStart(period)?.slice(0, 10) || null, entries: ranked.slice(0, 50), me: ranked.find((entry) => entry.isMe) || null };
 }
 
 async function getState() {
@@ -436,7 +442,10 @@ const server = createServer(async (req, res) => {
 
     if (url.pathname === "/api/ranking" && req.method === "GET") {
       const user = getUserFromRequest(req, res, true);
-      sendJson(res, 200, await getRanking(user.id));
+      const period = ["week", "month", "all"].includes(url.searchParams.get("period") || "")
+        ? url.searchParams.get("period")
+        : "week";
+      sendJson(res, 200, await getRanking(user.id, period));
       return;
     }
 
@@ -457,7 +466,7 @@ const server = createServer(async (req, res) => {
       database
         .prepare("INSERT INTO ranking_profiles (user_id, nickname, opted_in, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET nickname = excluded.nickname, opted_in = excluded.opted_in, updated_at = excluded.updated_at")
         .run(user.id, nickname, payload.optedIn ? 1 : 0, new Date().toISOString());
-      sendJson(res, 200, await getRanking(user.id));
+      sendJson(res, 200, await getRanking(user.id, payload.period || "week"));
       return;
     }
 

@@ -308,6 +308,56 @@ button {
   color: #fff;
   background: var(--blue);
 }
+.deck-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.select-toggle {
+  padding: 8px 5px;
+  color: var(--blue);
+  background: transparent;
+  font-size: 11px;
+  font-weight: 750;
+}
+.bulk-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 10px 0 8px;
+  padding: 9px 11px;
+  border-radius: 11px;
+  color: var(--muted);
+  background: var(--blue-soft);
+  font-size: 11px;
+}
+.bulk-toolbar button {
+  color: var(--red);
+  background: transparent;
+  font-size: 11px;
+  font-weight: 750;
+}
+.bulk-toolbar button:disabled {
+  cursor: default;
+  opacity: .4;
+}
+.card-select-mark {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border: 1.5px solid #c5ced8;
+  border-radius: 50%;
+  color: #fff;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 800;
+}
+.card-select-mark.selected {
+  border-color: var(--blue);
+  background: var(--blue);
+}
 .study-search {
   display: flex;
   align-items: center;
@@ -501,7 +551,7 @@ button {
 }
 .grade-actions {
   display: grid;
-  grid-template-columns: 1fr 1.3fr;
+  grid-template-columns: repeat(4, 1fr);
   gap: 8px;
   margin-top: 13px;
 }
@@ -516,6 +566,14 @@ button {
 .hard {
   color: #a66300;
   background: #fff1d8;
+}
+.again {
+  color: #c53a43;
+  background: #ffe7e8;
+}
+.easy {
+  color: #16794d;
+  background: #dff7eb;
 }
 .known {
   color: #fff;
@@ -780,6 +838,67 @@ button {
   color: #fff;
   background: var(--red);
 }
+.onboarding-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(16, 24, 33, 0.56);
+  backdrop-filter: blur(12px);
+}
+.onboarding-card {
+  display: grid;
+  justify-items: center;
+  width: min(100%, 360px);
+  padding: 30px 24px 22px;
+  border-radius: 26px;
+  background: var(--surface);
+  box-shadow: 0 24px 70px rgba(16, 24, 33, 0.28);
+  text-align: center;
+}
+.onboarding-card img {
+  width: 74px;
+  height: 74px;
+  margin-bottom: 18px;
+  border-radius: 22px;
+}
+.onboarding-card p {
+  margin: 0;
+  color: var(--blue);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .12em;
+}
+.onboarding-card h1 {
+  margin: 12px 0 10px;
+  font-size: 25px;
+  line-height: 1.25;
+  letter-spacing: -.07em;
+}
+.onboarding-card > span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.onboarding-card > button {
+  width: 100%;
+  min-height: 46px;
+  margin-top: 22px;
+  border-radius: 13px;
+  color: #fff;
+  background: var(--blue);
+  font-size: 12px;
+  font-weight: 750;
+}
+.onboarding-card .onboarding-skip {
+  min-height: 32px;
+  margin-top: 4px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 11px;
+}
 @media (min-width: 600px) {
   .study-sheet-panel {
     left: 50%;
@@ -805,6 +924,27 @@ button {
   align-items: center;
   gap: 5px;
   margin-left: auto;
+}
+.sync-dot {
+  width: 7px;
+  height: 7px;
+  margin-right: 2px;
+  border-radius: 50%;
+  background: var(--green);
+}
+.sync-dot.saving {
+  background: var(--orange);
+}
+.sync-dot.error {
+  background: var(--red);
+}
+.settings-button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 9px;
+  font-size: 16px;
+  line-height: 1;
 }
 .project-picker {
   display: grid;
@@ -854,6 +994,14 @@ button {
 }
 .data-button input {
   display: none;
+}
+.settings-export {
+  padding: 8px 10px;
+  border-radius: 9px;
+  color: var(--blue);
+  background: var(--blue-soft);
+  font-size: 10px;
+  font-weight: 750;
 }
 .data-actions .sync-pill {
   margin: 0 0 0 3px;
@@ -1402,6 +1550,15 @@ button {
   color: var(--orange);
   font-size: 10px;
 }
+.recent-list button small {
+  font-size: 10px;
+}
+.review-good {
+  color: var(--green);
+}
+.review-bad {
+  color: var(--orange);
+}
 .ranking-panel {
   display: grid;
   gap: 14px;
@@ -1436,6 +1593,22 @@ button {
 .ranking-profile {
   display: grid;
   gap: 9px;
+}
+.ranking-period-tabs {
+  display: flex;
+  gap: 5px;
+}
+.ranking-period-tabs button {
+  padding: 6px 10px;
+  border-radius: 8px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, .7);
+  font-size: 10px;
+  font-weight: 700;
+}
+.ranking-period-tabs button.active {
+  color: var(--blue);
+  background: #dbe8ff;
 }
 .ranking-profile > label:first-child {
   display: grid;
@@ -1811,6 +1984,27 @@ button {
   color: var(--muted);
   font-size: 11px;
   line-height: 1.5;
+}
+.settings-danger-zone {
+  border: 1px solid #ffd9db;
+  background: #fff8f8;
+}
+.settings-danger-zone strong {
+  color: var(--red);
+}
+.settings-danger-zone small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.settings-danger-zone button {
+  justify-self: start;
+  padding: 8px 10px;
+  border-radius: 9px;
+  color: var(--red);
+  background: #ffe7e8;
+  font-size: 11px;
+  font-weight: 750;
 }
 .subject-create {
   display: flex;
