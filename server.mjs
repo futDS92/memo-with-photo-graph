@@ -14,7 +14,9 @@ const statePath = join(dataDir, "state.json");
 const tempStatePath = join(dataDir, "state.json.tmp");
 const databasePath = join(dataDir, "study-deck.sqlite");
 const port = Number(process.env.PORT || 4180);
-const googleClientId = process.env.GOOGLE_CLIENT_ID || "";
+const googleClientId =
+  process.env.GOOGLE_CLIENT_ID ||
+  "683844235354-45qu9ct2r5cv9j9ddi5jedd23kunk0h4.apps.googleusercontent.com";
 const googleClient = googleClientId ? new OAuth2Client(googleClientId) : null;
 const maxBodyBytes = 8 * 1024 * 1024;
 const requestBuckets = new Map();

@@ -47,7 +47,7 @@ The GitHub Pages client is static, so deploy `server.mjs` separately and set the
 ```bash
 VITE_API_STATE_URL=https://api.example.com/api/state
 VITE_TOSS_AD_GROUP_ID=your-console-ad-group-id
-VITE_GOOGLE_CLIENT_ID=your-google-web-client-id
+VITE_GOOGLE_CLIENT_ID=683844235354-45qu9ct2r5cv9j9ddi5jedd23kunk0h4.apps.googleusercontent.com
 ```
 
 Set `CLIENT_ORIGIN` to the Pages origin. For HTTPS cross-origin cookies also set `COOKIE_SECURE=true`.

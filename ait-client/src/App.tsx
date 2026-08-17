@@ -36,7 +36,9 @@ import { AIT_VERSION } from "./generated/build-version";
 type View = "home" | "decks" | "study" | "mistakes" | "graph" | "stats" | "settings";
 type StudyMode = "due" | "mistakes";
 const TOSS_AD_GROUP_ID = import.meta.env.VITE_TOSS_AD_GROUP_ID || "";
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
+const GOOGLE_CLIENT_ID =
+  import.meta.env.VITE_GOOGLE_CLIENT_ID ||
+  "683844235354-45qu9ct2r5cv9j9ddi5jedd23kunk0h4.apps.googleusercontent.com";
 let tossAdsInitialization: Promise<void> | null = null;
 
 function initializeTossAds() {
