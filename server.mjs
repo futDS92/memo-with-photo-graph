@@ -3,7 +3,7 @@ import { readFile, writeFile, mkdir, rename } from "node:fs/promises";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
@@ -167,19 +167,6 @@ function parseCookies(req) {
       .map((part) => part.trim().split("="))
       .filter(([key]) => key)
       .map(([key, ...value]) => [key, decodeURIComponent(value.join("="))]),
-  );
-}
-
-function passwordHash(password, salt = randomBytes(16).toString("hex")) {
-  return `${salt}:${scryptSync(password, salt, 64).toString("hex")}`;
-}
-
-function passwordMatches(password, stored) {
-  if (!stored || !stored.includes(":")) return false;
-  const [salt, expected] = stored.split(":");
-  const actual = scryptSync(password, salt, 64).toString("hex");
-  return (
-    expected.length === actual.length && timingSafeEqual(Buffer.from(expected), Buffer.from(actual))
   );
 }
 
@@ -359,67 +346,6 @@ const server = createServer(async (req, res) => {
     }
 
     if (url.pathname === "/api/health") {
-      sendJson(res, 200, { ok: true });
-      return;
-    }
-
-    if (url.pathname === "/api/auth/register" && req.method === "POST") {
-      const payload = await readRequestJson(req);
-      const email = String(payload.email || "")
-        .trim()
-        .toLowerCase();
-      const password = String(payload.password || "");
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || password.length < 8) {
-        sendJson(res, 400, { error: "Use a valid email and an 8-character password" });
-        return;
-      }
-      if (database.prepare("SELECT id FROM users WHERE email = ?").get(email)) {
-        sendJson(res, 409, { error: "Email is already registered" });
-        return;
-      }
-      const userId = `user-${randomBytes(12).toString("hex")}`;
-      database
-        .prepare(
-          "INSERT INTO users (id, email, password_hash, is_anonymous, created_at) VALUES (?, ?, ?, 0, ?)",
-        )
-        .run(userId, email, passwordHash(password), new Date().toISOString());
-      setSessionCookie(res, createSession(userId));
-      sendJson(res, 201, { user: { id: userId, email, isAnonymous: false } });
-      return;
-    }
-
-    if (url.pathname === "/api/auth/login" && req.method === "POST") {
-      const payload = await readRequestJson(req);
-      const email = String(payload.email || "")
-        .trim()
-        .toLowerCase();
-      const password = String(payload.password || "");
-      const user = database
-        .prepare("SELECT id, email, password_hash FROM users WHERE email = ?")
-        .get(email);
-      if (!user || !passwordMatches(password, user.password_hash)) {
-        sendJson(res, 401, { error: "Email or password is incorrect" });
-        return;
-      }
-      setSessionCookie(res, createSession(user.id));
-      sendJson(res, 200, { user: { id: user.id, email: user.email, isAnonymous: false } });
-      return;
-    }
-
-    if (url.pathname === "/api/auth/me" && req.method === "GET") {
-      const user = getUserFromRequest(req, res, false);
-      sendJson(res, 200, {
-        user: user
-          ? { id: user.id, email: user.email, isAnonymous: Boolean(user.is_anonymous) }
-          : null,
-      });
-      return;
-    }
-
-    if (url.pathname === "/api/auth/logout" && req.method === "POST") {
-      const token = parseCookies(req).study_session;
-      if (token) database.prepare("DELETE FROM sessions WHERE token = ?").run(token);
-      setSessionCookie(res, "", 0);
       sendJson(res, 200, { ok: true });
       return;
     }

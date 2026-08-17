@@ -1373,7 +1373,9 @@ button {
   stroke: #52657c !important;
   stroke-width: 1.5 !important;
   opacity: 0.82;
-  transition: opacity 0.18s, stroke 0.18s;
+  transition:
+    opacity 0.18s,
+    stroke 0.18s;
 }
 .graph-edge.active {
   stroke: #76aaf7 !important;
@@ -1385,6 +1387,9 @@ button {
   cursor: pointer;
   outline: none;
   transition: opacity 0.18s;
+}
+.graph-node:active {
+  cursor: grabbing;
 }
 .graph-node.active {
   opacity: 1;
@@ -1403,6 +1408,24 @@ button {
   fill: #17212b;
   stroke: #8ab4ff;
   stroke-width: 2;
+}
+.graph-color-0 .graph-node-dot {
+  stroke: #8ab4ff;
+}
+.graph-color-1 .graph-node-dot {
+  stroke: #7bdcb5;
+}
+.graph-color-2 .graph-node-dot {
+  stroke: #f5b84b;
+}
+.graph-color-3 .graph-node-dot {
+  stroke: #d8a4ff;
+}
+.graph-color-4 .graph-node-dot {
+  stroke: #ff9c8d;
+}
+.graph-color-5 .graph-node-dot {
+  stroke: #7dd3fc;
 }
 .graph-node.focused .graph-node-halo {
   fill: #3182f6;
@@ -1442,32 +1465,96 @@ button {
 .graph-page .relation-list > div {
   border: 1px solid var(--line);
 }
-.account-button {
-  color: var(--blue);
+.settings-page {
+  padding-bottom: 24px;
 }
-.auth-copy {
-  margin: -7px 0 20px;
+.settings-section {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 12px;
+  padding: 16px;
+  border-radius: 17px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.settings-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.settings-section-head strong {
+  font-size: 15px;
+}
+.settings-section-head small,
+.settings-note small {
+  display: block;
+  margin-top: 4px;
   color: var(--muted);
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: 11px;
+  line-height: 1.5;
 }
-.form-error {
-  margin: 0;
-  padding: 10px 12px;
+.subject-create {
+  display: flex;
+  gap: 7px;
+}
+.subject-create input {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid var(--line);
   border-radius: 10px;
+  padding: 11px;
+  outline: 0;
+  background: #f8f9fa;
+  font-size: 12px;
+}
+.subject-create input:focus {
+  border-color: rgba(49, 130, 246, 0.5);
+  background: #fff;
+}
+.subject-create .known {
+  min-height: 40px;
+  padding: 0 14px;
+}
+.settings-subject-list {
+  display: grid;
+  gap: 7px;
+}
+.settings-subject-list > div {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.settings-subject-list > div > button:first-child {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  flex: 1;
+  padding: 11px;
+  border-radius: 11px;
+  text-align: left;
+  background: #f8f9fa;
+}
+.settings-subject-list strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-subject-list small {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 10px;
+}
+.settings-remove {
+  width: 31px;
+  height: 31px;
+  border-radius: 9px;
   color: var(--red);
   background: #fff0f0;
-  font-size: 12px;
-  line-height: 1.4;
+  font-size: 18px;
 }
-.auth-switch {
-  width: 100%;
-  margin-top: 12px;
-  padding: 10px;
-  color: var(--muted);
-  background: transparent;
-  font-size: 12px;
-}
-.auth-switch:hover {
-  color: var(--blue);
+.settings-note {
+  background: #f7f9fb;
+  box-shadow: none;
 }

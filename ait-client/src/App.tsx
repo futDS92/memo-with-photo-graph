@@ -1,18 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { seedState } from "./data/seed";
 import {
-  authenticate,
-  getCurrentUser,
   hydrateStateFromServer,
   loadLocalStateAsync,
-  logout,
   saveLocalState,
   syncStateToServer,
-  type AuthUser,
 } from "./lib/storage";
 import { relationTypes, type AppState, type RelationType, type Word } from "./types";
 
-type View = "home" | "decks" | "study" | "mistakes" | "graph" | "stats";
+type View = "home" | "decks" | "study" | "mistakes" | "graph" | "stats" | "settings";
 type StudyMode = "due" | "mistakes";
 
 function today() {
@@ -185,10 +181,16 @@ function graphLayout(cards: Word[], relations: AppState["relations"]) {
   const positions = cards.map((card, index) => {
     const angle = (index / Math.max(cards.length, 1)) * Math.PI * 2 - Math.PI / 2;
     const radius = cards.length <= 3 ? 86 : 168;
-    return { id: card.id, x: 360 + Math.cos(angle) * radius, y: 260 + Math.sin(angle) * radius * 0.72 };
+    return {
+      id: card.id,
+      x: 360 + Math.cos(angle) * radius,
+      y: 260 + Math.sin(angle) * radius * 0.72,
+    };
   });
   const positionMap = new Map(positions.map((position) => [position.id, position]));
-  const edges = relations.filter((relation) => positionMap.has(relation.fromWordId) && positionMap.has(relation.toWordId));
+  const edges = relations.filter(
+    (relation) => positionMap.has(relation.fromWordId) && positionMap.has(relation.toWordId),
+  );
   for (let iteration = 0; iteration < 18; iteration += 1) {
     const forces = positions.map(() => ({ x: 0, y: 0 }));
     positions.forEach((from, fromIndex) => {
@@ -223,6 +225,12 @@ function graphLayout(cards: Word[], relations: AppState["relations"]) {
     });
   }
   return positionMap;
+}
+
+function graphColorClass(value: string) {
+  let hash = 0;
+  for (const character of value) hash = (hash * 31 + character.charCodeAt(0)) | 0;
+  return `graph-color-${Math.abs(hash) % 6}`;
 }
 
 const koreanUi: Record<string, string> = {
@@ -367,19 +375,16 @@ export function App() {
   const [view, setView] = useState<View>("home");
   const [mode, setMode] = useState<StudyMode>("due");
   const [subject, setSubject] = useState("All");
+  const [customSubjects, setCustomSubjects] = useState<string[]>([]);
+  const [newSubject, setNewSubject] = useState("");
   const [studyIds, setStudyIds] = useState<string[]>([]);
   const [studyIndex, setStudyIndex] = useState(0);
   const [revealed, setRevealed] = useState(false);
   const [toast, setToast] = useState("");
-  const [sheet, setSheet] = useState<"add" | "detail" | "edit" | "auth" | null>(null);
+  const [sheet, setSheet] = useState<"add" | "detail" | "edit" | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [photoOpen, setPhotoOpen] = useState(false);
-  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
-  const [authMode, setAuthMode] = useState<"login" | "register">("login");
-  const [authEmail, setAuthEmail] = useState("");
-  const [authPassword, setAuthPassword] = useState("");
-  const [authError, setAuthError] = useState("");
   const [search, setSearch] = useState("");
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState(false);
@@ -394,7 +399,18 @@ export function App() {
   const [graphFocusId, setGraphFocusId] = useState("all");
   const [graphZoom, setGraphZoom] = useState(1);
   const [graphPan, setGraphPan] = useState({ x: 0, y: 0 });
+  const [graphNodeOffsets, setGraphNodeOffsets] = useState<
+    Record<string, { x: number; y: number }>
+  >({});
   const graphPointers = useRef(new Map<number, { x: number; y: number }>());
+  const graphNodeDrag = useRef<{
+    id: string;
+    pointerId: number;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+  } | null>(null);
   const stateReady = useRef(false);
   const syncVersion = useRef(0);
   const syncQueue = useRef(Promise.resolve());
@@ -402,7 +418,10 @@ export function App() {
 
   const cards = state.words;
   const selected = cards.find((card) => card.id === selectedId);
-  const subjects = useMemo(() => ["All", ...Array.from(new Set(cards.map(cardSubject)))], [cards]);
+  const subjects = useMemo(
+    () => ["All", ...Array.from(new Set([...customSubjects, ...cards.map(cardSubject)]))],
+    [cards, customSubjects],
+  );
   const dueCards = useMemo(() => cards.filter(isDue), [cards, nowTick]);
   const mistakeCards = useMemo(
     () => cards.filter((card) => (card.incorrectCount || 0) > (card.correctCount || 0)),
@@ -436,7 +455,15 @@ export function App() {
     });
     return base.filter((card) => connected.has(card.id)).slice(0, 12);
   }, [cards, graphFocusId, graphSubject, state.relations]);
-  const graphPositions = useMemo(() => graphLayout(graphCards, state.relations), [graphCards, state.relations]);
+  const graphPositions = useMemo(
+    () => graphLayout(graphCards, state.relations),
+    [graphCards, state.relations],
+  );
+  const graphDisplayPositions = useMemo(
+    () =>
+      new Map([...graphPositions].map(([id, position]) => [id, graphNodeOffsets[id] || position])),
+    [graphNodeOffsets, graphPositions],
+  );
   const graphNeighbors = useMemo(() => {
     const neighbors = new Set<string>();
     if (graphFocusId === "all") return neighbors;
@@ -491,7 +518,14 @@ export function App() {
     };
   }, []);
   useEffect(() => {
-    getCurrentUser().then(setAuthUser);
+    try {
+      const saved = JSON.parse(localStorage.getItem("study-deck.subjects") || "[]");
+      if (Array.isArray(saved)) {
+        setCustomSubjects(saved.filter((item): item is string => typeof item === "string"));
+      }
+    } catch {
+      // Ignore invalid local settings.
+    }
   }, []);
   useEffect(() => {
     const root = document.querySelector(".study-app");
@@ -759,27 +793,6 @@ export function App() {
     setPhotoOpen(false);
     notify("사진을 삭제했어요");
   };
-  const submitAuth = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setAuthError("");
-    try {
-      const user = await authenticate(authMode, authEmail, authPassword);
-      const local = await loadLocalStateAsync();
-      const remote = await hydrateStateFromServer(local);
-      if (remote) setState(localizeSeedCards(remote));
-      setAuthUser(user);
-      setSheet(null);
-      setAuthPassword("");
-      notify(authMode === "login" ? "로그인했어요" : "계정을 만들었어요");
-    } catch (error) {
-      setAuthError(error instanceof Error ? error.message : "인증에 실패했어요");
-    }
-  };
-  const signOut = async () => {
-    await logout().catch(() => undefined);
-    setAuthUser(null);
-    notify("로그아웃했어요");
-  };
   const updateCard = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const card = cards.find((item) => item.id === editingId);
@@ -915,6 +928,20 @@ export function App() {
       updatedAt: new Date().toISOString(),
       relations: current.relations.filter((relation) => relation.id !== id),
     }));
+  const addSubject = () => {
+    const value = newSubject.trim();
+    if (!value || value === "All" || subjects.includes(value)) return;
+    const next = [...customSubjects, value];
+    setCustomSubjects(next);
+    localStorage.setItem("study-deck.subjects", JSON.stringify(next));
+    setNewSubject("");
+    notify("과목을 추가했어요");
+  };
+  const removeSubject = (value: string) => {
+    const next = customSubjects.filter((subjectName) => subjectName !== value);
+    setCustomSubjects(next);
+    localStorage.setItem("study-deck.subjects", JSON.stringify(next));
+  };
 
   return (
     <main className="study-app">
@@ -1028,6 +1055,83 @@ export function App() {
           </div>
         </section>
       )}
+      {view === "settings" && (
+        <section className="study-content settings-page">
+          <div className="study-page-title">
+            <div>
+              <p>WORKSPACE</p>
+              <h1>Settings</h1>
+            </div>
+          </div>
+          <div className="settings-section">
+            <div className="settings-section-head">
+              <div>
+                <strong>Subjects</strong>
+                <small>Organize your cards by exam subject.</small>
+              </div>
+            </div>
+            <form
+              className="subject-create"
+              onSubmit={(event) => {
+                event.preventDefault();
+                addSubject();
+              }}
+            >
+              <input
+                value={newSubject}
+                onChange={(event) => setNewSubject(event.target.value)}
+                placeholder="Add a subject"
+                aria-label="새 과목"
+              />
+              <button className="known" type="submit">
+                Add
+              </button>
+            </form>
+            <div className="settings-subject-list">
+              {subjects
+                .filter((item) => item !== "All")
+                .map((item) => {
+                  const custom = customSubjects.includes(item);
+                  return (
+                    <div key={item}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSubject(item);
+                          setView("decks");
+                        }}
+                      >
+                        <span className="subject-dot" />
+                        <strong>{item}</strong>
+                        <small>
+                          {cards.filter((card) => cardSubject(card) === item).length} cards
+                        </small>
+                      </button>
+                      {custom && (
+                        <button
+                          className="settings-remove"
+                          type="button"
+                          onClick={() => removeSubject(item)}
+                          aria-label={`${item} 과목 삭제`}
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+          <div className="settings-section settings-note">
+            <strong>Local-first workspace</strong>
+            <small>
+              Your cards, photos, map positions, and study progress stay on this device and sync
+              when the API is available.
+            </small>
+          </div>
+        </section>
+      )}
+
       {view === "graph" && (
         <div className="graph-controls">
           <select
@@ -1110,12 +1214,8 @@ export function App() {
           <span className={`sync-pill ${syncError ? "error" : ""}`}>
             {syncing ? "Saving" : syncError ? "Saved on device" : "Saved"}
           </span>
-          <button
-            className="data-button account-button"
-            type="button"
-            onClick={() => (authUser ? signOut() : setSheet("auth"))}
-          >
-            {authUser ? "로그아웃" : "로그인"}
+          <button className="data-button" type="button" onClick={() => setView("settings")}>
+            Settings
           </button>
         </div>
       </header>
@@ -1449,27 +1549,78 @@ export function App() {
           <p className="graph-intro">Connect concepts to see how your syllabus fits together.</p>
           <div className="graph-canvas">
             <div className="graph-canvas-grid" aria-hidden="true" />
-            <svg className="graph-map" viewBox="0 0 720 520" role="img" aria-label="Knowledge graph">
+            <svg
+              className="graph-map"
+              viewBox="0 0 720 520"
+              role="img"
+              aria-label="Knowledge graph"
+            >
               {state.relations.map((relation) => {
-                const from = graphPositions.get(relation.fromWordId);
-                const to = graphPositions.get(relation.toWordId);
+                const from = graphDisplayPositions.get(relation.fromWordId);
+                const to = graphDisplayPositions.get(relation.toWordId);
                 if (!from || !to) return null;
-                const active = graphFocusId === "all" || (graphNeighbors.has(relation.fromWordId) && graphNeighbors.has(relation.toWordId));
-                return <line className={active ? "graph-edge active" : "graph-edge dim"} key={relation.id} x1={from.x} y1={from.y} x2={to.x} y2={to.y} />;
+                const active =
+                  graphFocusId === "all" ||
+                  (graphNeighbors.has(relation.fromWordId) &&
+                    graphNeighbors.has(relation.toWordId));
+                return (
+                  <line
+                    className={active ? "graph-edge active" : "graph-edge dim"}
+                    key={relation.id}
+                    x1={from.x}
+                    y1={from.y}
+                    x2={to.x}
+                    y2={to.y}
+                  />
+                );
               })}
               {graphCards.map((card) => {
-                const position = graphPositions.get(card.id);
+                const position = graphDisplayPositions.get(card.id);
                 if (!position) return null;
                 const active = graphFocusId === "all" || graphNeighbors.has(card.id);
                 const focused = graphFocusId === card.id;
                 return (
                   <g
-                    className={`graph-node ${active ? "active" : "dim"} ${focused ? "focused" : ""}`}
+                    className={`graph-node ${graphColorClass(cardSubject(card))} ${active ? "active" : "dim"} ${focused ? "focused" : ""}`}
                     key={card.id}
                     role="button"
                     tabIndex={0}
                     transform={`translate(${position.x} ${position.y})`}
                     aria-label={`${card.term} 개념 노드`}
+                    onPointerDown={(event) => {
+                      event.stopPropagation();
+                      (event.currentTarget as SVGGElement).setPointerCapture(event.pointerId);
+                      graphNodeDrag.current = {
+                        id: card.id,
+                        pointerId: event.pointerId,
+                        startX: event.clientX,
+                        startY: event.clientY,
+                        originX: position.x,
+                        originY: position.y,
+                      };
+                    }}
+                    onPointerMove={(event) => {
+                      const drag = graphNodeDrag.current;
+                      if (!drag || drag.id !== card.id || drag.pointerId !== event.pointerId)
+                        return;
+                      const rect = event.currentTarget.ownerSVGElement?.getBoundingClientRect();
+                      const scale = rect ? rect.width / 720 : 1;
+                      setGraphNodeOffsets((current) => ({
+                        ...current,
+                        [card.id]: {
+                          x: drag.originX + (event.clientX - drag.startX) / scale,
+                          y: drag.originY + (event.clientY - drag.startY) / scale,
+                        },
+                      }));
+                    }}
+                    onPointerUp={(event) => {
+                      if (graphNodeDrag.current?.pointerId === event.pointerId)
+                        graphNodeDrag.current = null;
+                    }}
+                    onPointerCancel={(event) => {
+                      if (graphNodeDrag.current?.pointerId === event.pointerId)
+                        graphNodeDrag.current = null;
+                    }}
                     onClick={() => setGraphFocusId(card.id)}
                     onDoubleClick={() => {
                       setSelectedId(card.id);
@@ -1482,10 +1633,23 @@ export function App() {
                       }
                     }}
                   >
-                    <circle className="graph-node-halo" r={focused ? 31 : 25} />
-                    <circle className="graph-node-dot" r={focused ? 20 : 16} />
-                    {card.photo && <image href={card.photo} x={focused ? -15 : -11} y={focused ? -15 : -11} width={focused ? 30 : 22} height={focused ? 30 : 22} preserveAspectRatio="xMidYMid slice" clipPath={`circle(${focused ? 15 : 11}px at ${focused ? 15 : 11}px ${focused ? 15 : 11}px)`} />}
-                    <text className="graph-node-label" y="39">{card.term.slice(0, 16)}{card.term.length > 16 ? "…" : ""}</text>
+                    <circle className="graph-node-halo" r={focused ? 15 : 10} />
+                    <circle className="graph-node-dot" r={focused ? 8 : 5} />
+                    {card.photo && (
+                      <image
+                        href={card.photo}
+                        x={focused ? -6 : -4}
+                        y={focused ? -6 : -4}
+                        width={focused ? 12 : 8}
+                        height={focused ? 12 : 8}
+                        preserveAspectRatio="xMidYMid slice"
+                        clipPath={`circle(${focused ? 6 : 4}px at ${focused ? 6 : 4}px ${focused ? 6 : 4}px)`}
+                      />
+                    )}
+                    <text className="graph-node-label" y="21">
+                      {card.term.slice(0, 16)}
+                      {card.term.length > 16 ? "…" : ""}
+                    </text>
                   </g>
                 );
               })}
@@ -1499,7 +1663,11 @@ export function App() {
               </small>
             )}
             {graphFocusId !== "all" && (
-              <button className="graph-focus-reset" type="button" onClick={() => setGraphFocusId("all")}>
+              <button
+                className="graph-focus-reset"
+                type="button"
+                onClick={() => setGraphFocusId("all")}
+              >
                 전체 보기
               </button>
             )}
@@ -1769,67 +1937,6 @@ export function App() {
               }}
             >
               Study this card
-            </button>
-          </div>
-        </div>
-      )}
-      {sheet === "auth" && (
-        <div className="study-sheet">
-          <div className="sheet-dim" onClick={() => setSheet(null)} />
-          <div className="study-sheet-panel auth-panel">
-            <div className="sheet-grab" />
-            <div className="sheet-title">
-              <div>
-                <p>{authMode === "login" ? "내 학습 동기화" : "학습 계정 만들기"}</p>
-                <h2>{authMode === "login" ? "로그인" : "처음 시작하기"}</h2>
-              </div>
-              <button type="button" onClick={() => setSheet(null)}>
-                <Icon name="close" />
-              </button>
-            </div>
-            <p className="auth-copy">
-              기기와 브라우저가 바뀌어도 카드, 사진, 연결, 학습 기록을 이어서 사용할 수 있어요.
-            </p>
-            <form className="card-form" onSubmit={submitAuth}>
-              <label>
-                이메일
-                <input
-                  type="email"
-                  value={authEmail}
-                  onChange={(event) => setAuthEmail(event.target.value)}
-                  autoComplete="email"
-                  required
-                />
-              </label>
-              <label>
-                비밀번호
-                <input
-                  type="password"
-                  value={authPassword}
-                  onChange={(event) => setAuthPassword(event.target.value)}
-                  autoComplete={authMode === "login" ? "current-password" : "new-password"}
-                  minLength={8}
-                  required
-                />
-              </label>
-              {authError && (
-                <p className="form-error" role="alert">
-                  {authError}
-                </p>
-              )}
-              <button className="known wide" type="submit">
-                {authMode === "login" ? "로그인" : "계정 만들기"}
-              </button>
-            </form>
-            <button
-              className="auth-switch"
-              type="button"
-              onClick={() => {
-                setAuthMode(authMode === "login" ? "register" : "login");
-                setAuthError("");
-              }}
-            >
-              {authMode === "login" ? "처음인가요? 계정 만들기" : "이미 계정이 있나요? 로그인"}
             </button>
           </div>
         </div>

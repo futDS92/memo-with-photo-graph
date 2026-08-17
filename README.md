@@ -22,7 +22,7 @@ npm run start:api
 - Study: recall the answer, reveal it, then grade your confidence
 - Mistakes: revisit cards that still need work
 - Storage: IndexedDB first, localStorage fallback, per-user SQLite API sync
-- Account: optional email/password login; anonymous sessions keep the app usable before sign-in
+- Settings: manage subjects and keep the workspace local-first
 - Import/export: move a deck with validated JSON
 
 ## Structure
@@ -41,7 +41,6 @@ The GitHub Pages client is static, so deploy `server.mjs` separately and set the
 
 ```bash
 VITE_API_STATE_URL=https://api.example.com/api/state
-VITE_API_AUTH_URL=https://api.example.com/api/auth
 ```
 
 Set `CLIENT_ORIGIN` to the Pages origin. For HTTPS cross-origin cookies also set `COOKIE_SECURE=true`.

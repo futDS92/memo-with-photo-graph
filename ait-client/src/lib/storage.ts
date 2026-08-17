@@ -7,8 +7,6 @@ const DB_NAME = "photo-graph";
 const DB_VERSION = 1;
 const STATE_STORE = "state";
 const PENDING_SYNC_KEY = "memo-with-photo-graph.pending-sync";
-const API_AUTH_URL = import.meta.env.VITE_API_AUTH_URL || "/api/auth";
-export type AuthUser = { id: string; email: string | null; isAnonymous: boolean };
 function cloneSeedState(): AppState {
   return {
     ...seedState,
@@ -240,37 +238,4 @@ export async function syncStateToServer(state: AppState): Promise<void> {
     savePendingSync(state);
     throw error;
   }
-}
-
-export async function getCurrentUser(): Promise<AuthUser | null> {
-  try {
-    const response = await fetch(`${API_AUTH_URL}/me`, {
-      credentials: "include",
-      cache: "no-store",
-    });
-    if (!response.ok) return null;
-    return ((await response.json()) as { user: AuthUser | null }).user;
-  } catch {
-    return null;
-  }
-}
-
-export async function authenticate(
-  path: "login" | "register",
-  email: string,
-  password: string,
-): Promise<AuthUser> {
-  const response = await fetch(`${API_AUTH_URL}/${path}`, {
-    method: "POST",
-    credentials: "include",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ email, password }),
-  });
-  const data = (await response.json()) as { user?: AuthUser; error?: string };
-  if (!response.ok || !data.user) throw new Error(data.error || "Authentication failed");
-  return data.user;
-}
-
-export async function logout(): Promise<void> {
-  await fetch(`${API_AUTH_URL}/logout`, { method: "POST", credentials: "include" });
 }
