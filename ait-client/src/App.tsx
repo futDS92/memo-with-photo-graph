@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { defaultProject, seedState } from "./data/seed";
 import {
   hydrateStateFromServer,
@@ -140,43 +140,6 @@ function answerMatches(input: string, answer: string) {
   const normalized = normalizeAnswer(input);
   return answer.split(/[|/]/).some((item) => normalizeAnswer(item) === normalized);
 }
-function isValidImportedState(value: unknown): value is AppState {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<AppState>;
-  if (
-    candidate.schemaVersion !== 2 ||
-    !Array.isArray(candidate.words) ||
-    !Array.isArray(candidate.relations)
-  )
-    return false;
-  const ids = new Set<string>();
-  const relationIds = new Set<string>();
-  for (const card of candidate.words) {
-    if (
-      !card ||
-      typeof card.id !== "string" ||
-      typeof card.term !== "string" ||
-      typeof card.definition !== "string" ||
-      !Array.isArray(card.tags) ||
-      ids.has(card.id)
-    )
-      return false;
-    ids.add(card.id);
-  }
-  return candidate.relations.every((relation) =>
-    Boolean(
-      relation &&
-        typeof relation.id === "string" &&
-        !relationIds.has(relation.id) &&
-        typeof relation.fromWordId === "string" &&
-        typeof relation.toWordId === "string" &&
-        ids.has(relation.fromWordId) &&
-        ids.has(relation.toWordId) &&
-        relationIds.add(relation.id),
-    ),
-  );
-}
-
 function graphLayout(cards: Word[], relations: AppState["relations"]) {
   const positions = cards.map((card, index) => {
     const angle = (index / Math.max(cards.length, 1)) * Math.PI * 2 - Math.PI / 2;
@@ -249,7 +212,6 @@ const koreanUi: Record<string, string> = {
   example: "예시",
   "study deck": "스터디 덱",
   "Turn your syllabus into cards": "시험 내용을 카드로",
-  Import: "가져오기",
   Export: "내보내기",
   Saving: "저장 중",
   "Saved on device": "기기에 저장됨",
@@ -414,6 +376,9 @@ export function App() {
   const [clozeInput, setClozeInput] = useState("");
   const [graphSubject, setGraphSubject] = useState("All");
   const [graphFocusId, setGraphFocusId] = useState("all");
+  const [graphPreviewId, setGraphPreviewId] = useState<string | null>(null);
+  const [graphHistory, setGraphHistory] = useState<string[]>(["all"]);
+  const [graphHistoryIndex, setGraphHistoryIndex] = useState(0);
   const [graphZoom, setGraphZoom] = useState(1);
   const [graphPan, setGraphPan] = useState({ x: 0, y: 0 });
   const [graphNodeOffsets, setGraphNodeOffsets] = useState<
@@ -509,11 +474,26 @@ export function App() {
   const accuracy = totalAttempts ? Math.round((totalCorrect / totalAttempts) * 100) : 0;
   const mastered = cards.filter((card) => (card.reviewLevel || 0) >= 3).length;
   const currentCard = cards.find((card) => card.id === studyIds[studyIndex]);
+  const graphPreview = cards.find((card) => card.id === graphPreviewId);
 
   const notify = (message: string) => {
     setToast(message);
     if (toastTimer.current) window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToast(""), 1800);
+  };
+  const focusGraphNode = (id: string) => {
+    setGraphFocusId(id);
+    setGraphPreviewId(id === "all" ? null : id);
+    setGraphHistory((history) => [...history.slice(0, graphHistoryIndex + 1), id]);
+    setGraphHistoryIndex((index) => index + 1);
+  };
+  const navigateGraphHistory = (direction: -1 | 1) => {
+    const nextIndex = graphHistoryIndex + direction;
+    if (nextIndex < 0 || nextIndex >= graphHistory.length) return;
+    const nextId = graphHistory[nextIndex];
+    setGraphHistoryIndex(nextIndex);
+    setGraphFocusId(nextId);
+    setGraphPreviewId(nextId === "all" ? null : nextId);
   };
 
   useEffect(() => {
@@ -803,7 +783,7 @@ export function App() {
     if (nextIds.length)
       saveStudySession({ mode, ids: nextIds, index: Math.min(studyIndex, nextIds.length - 1) });
     else saveStudySession(null);
-    setGraphFocusId((focusId) => (focusId === id ? "all" : focusId));
+    if (graphFocusId === id) focusGraphNode("all");
     setSelectedId(null);
     setSheet(null);
     notify("카드를 삭제했어요");
@@ -884,21 +864,6 @@ export function App() {
     link.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     notify("Deck exported");
-  };
-  const importJson = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-    try {
-      const parsed: unknown = JSON.parse(await file.text());
-      if (!isValidImportedState(parsed)) throw new Error("Invalid deck");
-      setState(
-        normalizeWorkspace({ ...parsed, updatedAt: new Date().toISOString(), schemaVersion: 2 }),
-      );
-      notify("Deck imported");
-    } catch {
-      notify("Could not import this deck");
-    }
   };
   const chooseAnswer = (choice: string) => {
     if (!currentCard) return;
@@ -1287,7 +1252,7 @@ export function App() {
             value={graphSubject}
             onChange={(event) => {
               setGraphSubject(event.target.value);
-              setGraphFocusId("all");
+              focusGraphNode("all");
             }}
             aria-label="과목 필터"
           >
@@ -1299,7 +1264,7 @@ export function App() {
           </select>
           <select
             value={graphFocusId}
-            onChange={(event) => setGraphFocusId(event.target.value)}
+            onChange={(event) => focusGraphNode(event.target.value)}
             aria-label="중심 개념"
           >
             <option value="all">전체 개념</option>
@@ -1312,6 +1277,12 @@ export function App() {
               ))}
           </select>
           <div className="graph-zoom">
+            <button className="graph-history-button" type="button" onClick={() => navigateGraphHistory(-1)} disabled={graphHistoryIndex === 0} aria-label="이전 맵 위치">
+              ‹
+            </button>
+            <button className="graph-history-button" type="button" onClick={() => navigateGraphHistory(1)} disabled={graphHistoryIndex >= graphHistory.length - 1} aria-label="다음 맵 위치">
+              ›
+            </button>
             <button
               type="button"
               onClick={() => setGraphZoom((zoom) => Math.max(0.8, Number((zoom - 0.1).toFixed(1))))}
@@ -1345,20 +1316,20 @@ export function App() {
         </div>
       )}
       <header className="study-topbar">
-        <div className="study-brand">
+        <button className="study-brand brand-button" type="button" onClick={() => setView("home")} aria-label="홈으로 이동">
           <img className="study-logo" src="./brand/graphflash-logo-3d.png" alt="GraphFlash" />
           <div>
             <strong>study deck</strong>
             <small>Turn your syllabus into cards</small>
           </div>
-        </div>
+        </button>
         <select
           className="project-switcher"
           value={currentProject.id}
           onChange={(event) => {
             setCurrentProjectId(event.target.value);
             setSubject("All");
-            setGraphFocusId("all");
+              focusGraphNode("all");
             setView("home");
           }}
           aria-label="프로젝트 선택"
@@ -1370,10 +1341,6 @@ export function App() {
           ))}
         </select>
         <div className="data-actions">
-          <label className="data-button">
-            Import
-            <input type="file" accept="application/json,.json" onChange={importJson} />
-          </label>
           <button className="data-button" type="button" onClick={exportJson}>
             Export
           </button>
@@ -1787,15 +1754,11 @@ export function App() {
                       if (graphNodeDrag.current?.pointerId === event.pointerId)
                         graphNodeDrag.current = null;
                     }}
-                    onClick={() => setGraphFocusId(card.id)}
-                    onDoubleClick={() => {
-                      setSelectedId(card.id);
-                      setSheet("detail");
-                    }}
+                    onClick={() => focusGraphNode(card.id)}
                     onKeyDown={(event) => {
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
-                        setGraphFocusId(card.id);
+                        focusGraphNode(card.id);
                       }
                     }}
                   >
@@ -1832,12 +1795,27 @@ export function App() {
               <button
                 className="graph-focus-reset"
                 type="button"
-                onClick={() => setGraphFocusId("all")}
+                onClick={() => focusGraphNode("all")}
               >
                 전체 보기
               </button>
             )}
           </div>
+          {graphPreview && (
+            <article className="graph-preview">
+              <div className="graph-preview-image">
+                {graphPreview.photo ? <img src={graphPreview.photo} alt="" /> : <span>{graphPreview.term.slice(0, 1)}</span>}
+              </div>
+              <div className="graph-preview-copy">
+                <small>{cardSubject(graphPreview)} · {cardChapter(graphPreview)}</small>
+                <strong>{graphPreview.term}</strong>
+                <p>{graphPreview.memo || graphPreview.definition}</p>
+              </div>
+              <button className="graph-preview-open" type="button" onClick={() => { setSelectedId(graphPreview.id); setSheet("detail"); }}>
+                카드 열기
+              </button>
+            </article>
+          )}
           <div className="graph-editor">
             <strong>Add a connection</strong>
             <div className="form-grid">
@@ -1919,7 +1897,7 @@ export function App() {
           <Icon name="deck" />
           <span>Cards</span>
         </button>
-        <button className="study-add" type="button" onClick={() => setSheet("add")}>
+        <button className="study-add" type="button" onClick={() => setSheet("add")} aria-label="새 카드 추가">
           <Icon name="plus" />
         </button>
         <button

@@ -1093,6 +1093,21 @@ button {
   background: var(--blue-soft);
   font-size: 16px;
 }
+.graph-zoom .graph-history-button { width: 24px; color: var(--muted); background: #f4f6f8; font-size: 19px; }
+.graph-zoom .graph-history-button:disabled { cursor: default; opacity: .35; }
+.graph-preview { display: grid; grid-template-columns: 42px minmax(0, 1fr) auto; align-items: center; gap: 10px; margin-top: 10px; padding: 10px; border: 1px solid #314257; border-radius: 14px; color: #e8f1ff; background: #17212b; }
+.graph-preview-image { display: grid; place-items: center; width: 42px; height: 42px; overflow: hidden; border-radius: 11px; color: #9ec2ff; background: #22324a; font-size: 18px; font-weight: 800; }
+.graph-preview-image img { width: 100%; height: 100%; object-fit: cover; }
+.graph-preview-copy { display: grid; min-width: 0; gap: 3px; }
+.graph-preview-copy small { overflow: hidden; color: #8da2bc; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.graph-preview-copy strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.graph-preview-copy p { overflow: hidden; margin: 0; color: #aebed2; font-size: 10px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.graph-preview-open { padding: 8px 10px; border-radius: 9px; color: #102039; background: #8ab4ff; font-size: 10px; font-weight: 800; white-space: nowrap; }
+.brand-button { border: 0; padding: 0; text-align: left; background: transparent; }
+.brand-button:hover { opacity: .82; }
+.study-nav .study-add { width: 54px; height: 54px; margin-top: -32px; border: 5px solid var(--bg); border-radius: 50%; color: #fff; background: var(--blue); box-shadow: 0 10px 24px rgba(49,130,246,.38); }
+.study-nav .study-add .icon { width: 25px; height: 25px; stroke-width: 2.2; }
+.study-nav .study-add:active { transform: translateY(2px) scale(.96); }
 .graph-zoom span {
   min-width: 34px;
   color: var(--muted);
