@@ -955,29 +955,38 @@ button {
 }
 .project-picker {
   display: grid;
-  min-width: 106px;
-  margin-left: auto;
+  flex: 1 1 128px;
+  min-width: 112px;
+  max-width: 158px;
+  margin-left: 12px;
   gap: 2px;
   cursor: pointer;
 }
 .project-picker > span {
-  padding-left: 2px;
+  padding-left: 3px;
   color: var(--muted);
-  font-size: 8px;
+  font-size: 9px;
   font-weight: 700;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
 }
 .project-switcher {
   width: 100%;
   min-width: 0;
-  max-width: 118px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
-  padding: 6px 7px;
+  height: 34px;
+  overflow: hidden;
+  border: 1px solid #d9e1eb;
+  border-radius: 11px;
+  padding: 0 9px;
   color: var(--ink);
-  background: var(--surface);
-  font-size: 10px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(21, 42, 68, 0.06);
+  font-size: 11px;
   font-weight: 750;
+  text-overflow: ellipsis;
+}
+.project-switcher:focus-visible {
+  outline: 2px solid rgba(49, 130, 246, 0.35);
+  outline-offset: 2px;
 }
 .settings-project-list { display: grid; gap: 7px; }
 .settings-project-list > div { display: flex; align-items: center; gap: 5px; }
@@ -1769,10 +1778,13 @@ button {
   width: 23px;
   height: 23px;
 }
-.study-nav .study-add,
-.study-nav .study-add .icon {
+.study-nav .study-add {
   width: 48px;
   height: 48px;
+}
+.study-nav .study-add .icon {
+  width: 22px;
+  height: 22px;
 }
 .graph-canvas-tools button {
   width: 34px;
